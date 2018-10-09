@@ -1,16 +1,24 @@
 #include "mbed.h"
 #include "structures.h"
+#include "CANMsg.h"
+#include "CANDef.h"
 
 /* Communication protocols */
+CAN can(PB_8, PB_9);
 Serial uart(PA_9, PA_10);
 //I2C i2c(PB_7, PB_6);
-// CAN can(PB_8, PB_9);
 
 /* Debug section */
+uint64_t    time_CAN = 0,
+            time_CAN2 = 0;
+uint32_t calls_CAN = 0;
 PwmOut signal_wave(PA_8);           // simulates frequency input
 //DigitalOut debug2(PB_15);
 //DigitalOut debug3(PB_14);         //PB13, PB12
 DigitalOut led(PC_13);
+
+/* RTOS tools declaration */
+Thread CANRX_thread(osPriorityNormal1, 1000); //initialize random priority and reserved memory to avoid crashes
 
 /* Pins declaration */
 InterruptIn choke(PA_5, PullUp);
@@ -38,20 +46,30 @@ void choke_ISR();
 void run_ISR();
 void tick_25hz_ISR();
 void tick_serial_ISR();
+void CANRX_check();
+uint16_t filter_msg(CANMsg& msg);
 
 void main()
 {
+    /* Variables declaration */
     state_t st;
     uint16_t frequency;
-    uart.baud(9600);
+    /* RTOS set up */
+    osThreadId id = osThreadGetId();                        //get id from main thread
+    osThreadSetPriority(osThreadGetId(), osPriorityNormal); // set priority of main thread 1 level before CANRX_thread
+    /* Initialization of peripherals (communication, tickers, interrupts) */
+    uart.baud(9600);                            // set UART baud to 9600 (change do 115200)
+    can.frequency(5000000);                    // set CAN rate to 1Mbps
     signal_wave.period(0.02f);                  // set frequency to 50hz
     signal_wave.write(0.5f);                    // set 50% duty cycle
-    tick_25hz.attach(tick_25hz_ISR, 0.1);        // configure FREQ state ticker for 25Hz
-    tick_serial.attach(tick_serial_ISR, 0.5);   // configure FREQ state ticker for 25Hz
+    tick_25hz.attach(tick_25hz_ISR, 0.1);       // configure FREQ state ticker for 10Hz
+    tick_serial.attach(tick_serial_ISR, 0.5);   // configure SERIAL state ticker for 2Hz
     freq_sensor.fall(freq_ISR);                 // |
     choke.fall(choke_ISR);                      // |->attach interrupt callback
     run.fall(run_ISR);                          // |
     
+    CANRX_thread.start(CANRX_check);
+
     while(true)
     {
         if(!state_buffer.empty())
@@ -97,6 +115,9 @@ void main()
             case SERIAL:
                 // formats string to send to display or radio
                 uart.printf("speed: %d\r\n", data->sample_25hz.last_spd);
+                uart.printf("dpsx = %d\r\n", data->sample_100hz.dpsx);
+                uart.printf("CAN avg time = %f\r\n", (float)time_CAN/calls_CAN);
+                calls_CAN = 0;
                 break;
             default:
                 break;
@@ -129,6 +150,61 @@ void tick_25hz_ISR()
 void tick_serial_ISR()
 {
     state_buffer.push(SERIAL);
+}
+
+void CANRX_check()
+{
+    CANMsg      rxmsg;
+    uint16_t    wait_time = 10,
+                timeout = 0;
+
+    while(true)
+    {
+        if(can.read(rxmsg))
+        {
+            time_CAN2 = Kernel::get_ms_count();
+            wait_time = filter_msg(rxmsg);
+            time_CAN += Kernel::get_ms_count() - time_CAN2;
+            calls_CAN++;
+        }
+        if(!wait_time)
+        {
+            timeout++;
+        }
+        if(timeout > 10)
+        {
+            wait_time = 10;
+            timeout = 0;
+        }
+        // todo implement timeout for wait_time == 0
+        CANRX_thread.wait(wait_time);
+    }
+}
+
+/* Filter CAN message */
+uint16_t filter_msg(CANMsg& msg)
+{
+    uint16_t wait_time = 10;    // default wait time in ms
+    if(msg.id == ACC_Msg)
+    {
+        msg >> data->sample_100hz.accx >> data->sample_100hz.accy >> data->sample_100hz.accz;
+        wait_time = 0;
+    }
+    else if(msg.id == DPS_Msg)
+    {
+        msg >> data->sample_100hz.dpsx >> data->sample_100hz.dpsy >> data->sample_100hz.dpsz >> data->sample_100hz.timestamp;
+        acq100hz_buffer.push(data->sample_100hz);
+    }
+    else if (msg.id == RPM_Msg)
+    {
+        msg >> data->sample_25hz.rpm >> data->sample_25hz.last_rpm;
+    }
+    else if(msg.id == SPD_Msg)
+    {
+        msg >> data->sample_25hz.speed >> data->sample_25hz.last_spd;
+    }
+
+    return wait_time;
 }
 
 /* Packet methods definition */
