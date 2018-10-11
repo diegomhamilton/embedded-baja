@@ -3,6 +3,7 @@
 #include "CANMsg.h"
 #include "CANDef.h"
 
+
 /* Communication protocols */
 CAN can(PB_8, PB_9);
 Serial uart(PA_9, PA_10);
@@ -21,14 +22,15 @@ DigitalOut led(PC_13);
 Thread CANRX_thread(osPriorityNormal1, 1000); //initialize random priority and reserved memory to avoid crashes
 
 /* Pins declaration */
-InterruptIn choke(PA_5, PullUp);
-InterruptIn run(PA_6, PullUp);
-InterruptIn freq_sensor(PB_4);
+InterruptIn choke(PA_5, PullUp);                                // servomotor CHOKE mode
+InterruptIn run(PA_6, PullUp);                                  // servomotor RUN mode
+InterruptIn freq_sensor(PB_4);                                  // frequency sensor (rpm, speed)
 // AnalogIn    temperature();
 
 /* Timers */
-Ticker tick_25hz;
-Ticker tick_serial;
+Ticker tick_25hz;                                               // timer for 25Hz acquisitions
+Ticker tick_100hz;                                              // timer for 100Hz acquisitions
+Ticker tick_serial;                                             // timer for serial send 
 //Timer pulse_timer;
 
 /* Global variables */
@@ -36,7 +38,6 @@ Packet* data = new Packet();
 uint16_t pulse_counter = 0;
 uint16_t current_period = 0;
 uint32_t last_count = Kernel::get_ms_count();                   // store moment of last interrupt (PB_4)
-bool choke_flag = false, run_flag = false;
 CircularBuffer <state_t, STATE_BUF_SIZE> state_buffer;          // store sequence of events to proccess
 CircularBuffer <packet_100hz_t, ACQ_BUF_SIZE> acq100hz_buffer;  // store packets of accelerometer and gyro
 
@@ -45,6 +46,7 @@ void freq_ISR();
 void choke_ISR();
 void run_ISR();
 void tick_25hz_ISR();
+void tick_100hz_ISR();
 void tick_serial_ISR();
 void CANRX_check();
 uint16_t filter_msg(CANMsg& msg);
@@ -54,25 +56,30 @@ void main()
     /* Variables declaration */
     state_t st;
     uint16_t frequency;
+    uint64_t last_acq = 0;
+    CANMsg txmsg;
     /* RTOS set up */
     osThreadId id = osThreadGetId();                        //get id from main thread
     osThreadSetPriority(osThreadGetId(), osPriorityNormal); // set priority of main thread 1 level before CANRX_thread
     /* Initialization of peripherals (communication, tickers, interrupts) */
-    uart.baud(9600);                            // set UART baud to 9600 (change do 115200)
-    can.frequency(5000000);                    // set CAN rate to 1Mbps
-    signal_wave.period(0.02f);                  // set frequency to 50hz
-    signal_wave.write(0.5f);                    // set 50% duty cycle
-    tick_25hz.attach(tick_25hz_ISR, 0.1);       // configure FREQ state ticker for 10Hz
-    tick_serial.attach(tick_serial_ISR, 0.5);   // configure SERIAL state ticker for 2Hz
-    freq_sensor.fall(freq_ISR);                 // |
-    choke.fall(choke_ISR);                      // |->attach interrupt callback
-    run.fall(run_ISR);                          // |
+    uart.baud(9600);                                        // set UART baud to 9600 (change do 115200)
+    can.frequency(5000000);                                 // set CAN rate to 1Mbps
+    signal_wave.period(0.02f);                              // set frequency to 50hz
+    signal_wave.write(0.5f);                                // set 50% duty cycle
+    tick_25hz.attach(tick_25hz_ISR, 0.1);                   // configure FREQ state ticker for 10Hz
+    tick_100hz.attach(tick_100hz_ISR, 0.01);                 // configure FREQ state ticker for 10Hz
+    tick_serial.attach(tick_serial_ISR, 0.5);               // configure SERIAL state ticker for 2Hz
+    freq_sensor.fall(freq_ISR);                             // |
+    choke.fall(choke_ISR);                                  // |->attach interrupt callback
+    run.fall(run_ISR);                                      // |
     
     CANRX_thread.start(CANRX_check);
 
     while(true)
     {
-        if(!state_buffer.empty())
+        if (state_buffer.full())
+            uart.printf("buffer full");
+        else if(!state_buffer.empty())
             state_buffer.pop(st);
         else
             st = ACQ;
@@ -80,43 +87,53 @@ void main()
         switch(st)
         {
             case ACQ:
-                uart.printf("*\r\n");
-                Thread::wait(20);
-                // get data from accelerometer
-                // send data / calculate roll and pitch
+                uart.printf("*\r\n");                       // debug
+                if(!acq100hz_buffer.empty())
+                {
+                    acq100hz_buffer.pop(data->sample_100hz);
+                    // calculate roll and pitch
+                    /* Send accelerometer data */
+                    txmsg.clear();
+                    txmsg.id = ACC_Msg;
+                    txmsg << data->sample_100hz.accx << data->sample_100hz.accy << data->sample_100hz.accz;
+                    if(can.write(txmsg))
+                    {
+                        /* Send gyroscope data only if accelerometer data succeeds */
+                        txmsg.clear();
+                        txmsg.id = DPS_Msg;
+                        txmsg << data->sample_100hz.dpsx << data->sample_100hz.dpsy << data->sample_100hz.dpsz << data->sample_100hz.timestamp;
+                        can.write(txmsg);
+                    }
+                }
+                else if(acq100hz_buffer.full())
+                    uart.printf("ACQ F\r\n");               // debug
                 break;
             case CHKRUN:
-                if (choke.read() && !run.read())
-                {
-                    uart.printf("::R\r\n");
-                }
-                else if (!choke.read() && run.read())
-                {
-                    uart.printf("::C\r\n");
-                }
-                else if (choke.read() && run.read())
-                {
-                    uart.printf("::M\r\n");
-                }
-                else
-                {
-                    uart.printf("::F\r\n");
-                }
+                data->chk_run = !choke.read() << 1 | !run.read() << 0;
+                txmsg.clear();
+                txmsg.id = FLAGS_Msg;
+                txmsg << data->chk_run;
+                can.write(txmsg);
                 break;
             case FREQ:
-                freq_sensor.fall(NULL);
-                data->sample_25hz.last_spd = 1000*((float)pulse_counter/current_period);    //calculates frequency in Hz
+                freq_sensor.fall(NULL);                     // disable interrupt
+                data->sample_25hz.speed = 1000*((float)pulse_counter/current_period);    //calculates frequency in Hz
                 // makes conversion to speed
-                pulse_counter = 0;
-                current_period = 0;
-                last_count = Kernel::get_ms_count();
-                freq_sensor.fall(freq_ISR);
+                pulse_counter = 0;                          //|
+                current_period = 0;                         //|-> reset pulses related variables
+                last_count = Kernel::get_ms_count();        //|
+                freq_sensor.fall(freq_ISR);                 // enable interrupt
+                /* Send frequency */
+                txmsg.clear();
+                txmsg << data->sample_25hz.speed << (uint16_t) 0;
+                can.write(txmsg);
                 break;
             case SERIAL:
                 // formats string to send to display or radio
-                uart.printf("speed: %d\r\n", data->sample_25hz.last_spd);
+                uart.printf("speed: %d\r\n", data->sample_25hz.speed);
                 uart.printf("dpsx = %d\r\n", data->sample_100hz.dpsx);
-                uart.printf("CAN avg time = %f\r\n", (float)time_CAN/calls_CAN);
+                uart.printf("CR %d\r\n", data->chk_run);    // debug
+                uart.printf("calls = %d\r\n", calls_CAN);
                 calls_CAN = 0;
                 break;
             default:
@@ -145,6 +162,11 @@ void run_ISR()
 void tick_25hz_ISR()
 {
     state_buffer.push(FREQ);
+}
+
+void tick_100hz_ISR()
+{
+    state_buffer.push(ACQ);
 }
 
 void tick_serial_ISR()
@@ -202,6 +224,10 @@ uint16_t filter_msg(CANMsg& msg)
     else if(msg.id == SPD_Msg)
     {
         msg >> data->sample_25hz.speed >> data->sample_25hz.last_spd;
+    }
+    else if(msg.id == FLAGS_Msg)
+    {
+        msg >> data->chk_run;
     }
 
     return wait_time;
