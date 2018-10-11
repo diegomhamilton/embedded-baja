@@ -33,7 +33,9 @@ class Packet
         packet_100hz_t sample_100hz;
         packet_25hz_t sample_25hz;
         packet_1hz_t sample_1hz;
-        uint8_t chk_run;                // 0x00 for disabled, 0x10 CHOKE, 0x01 RUN
+        uint16_t roll;
+        uint16_t pitch;
+        uint8_t chk_run;                // 0x00 for disabled, 0x02 CHOKE, 0x01 RUN
 
     
         Packet();
