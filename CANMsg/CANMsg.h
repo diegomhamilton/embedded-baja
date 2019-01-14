@@ -9,7 +9,6 @@
  *
  * See Wiki page <https://developer.mbed.org/users/hudakz/code/CAN_Hello/> for demo.
  */
-
 #include "CAN.h"
 
 class CANMsg : public CANMessage
@@ -32,11 +31,11 @@ public:
 
     /** Clears CAN message content
      */
-    void clear(void) {
+    void clear(int new_id) {
         len    = 0;
         type   = CANData;
         format = CANStandard;
-        id     = 0;
+        id     = new_id;
         memset(data, 0, 8);
     };
 
