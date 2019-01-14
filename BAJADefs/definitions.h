@@ -1,3 +1,10 @@
+#ifndef MBED_H
+    #include "mbed.h"
+    #define MBED_H
+#endif
+
+#define BUFFER_SIZE
+
 typedef struct
 {
     uint16_t acc_x;
@@ -28,3 +35,5 @@ typedef struct
     temperature_t temp;
     uint8_t data_saved;
 } packet_t;
+
+extern CircularBuffer <uint8_t, BUFFER_SIZE> state_buffer;
