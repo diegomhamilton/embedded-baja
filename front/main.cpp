@@ -17,12 +17,14 @@ DigitalOut led(PC_13);
 /* Interrupt services routine */
 void canISR();
 void servoSwitchISR();
+void ticker2HzISR();
 void ticker10HzISR();
 void ticker20HzISR();
 void frequencyCounterISR();
 /* Interrupt handlers */
 void canHandler();
 /* General functions*/
+void filterMessage(CANMsg msg)
 
 /* Debug variables */
 Timer t;
@@ -30,6 +32,7 @@ bool buffer_full = false;
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
+Ticker ticker2Hz;
 Ticker ticker10Hz;
 Ticker ticker20Hz;
 CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
@@ -37,7 +40,6 @@ CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
 bool switch_clicked = false;
 uint8_t switch_state = 0x00;
 state_t current_state = IDLE_ST;
-CANMsg rxMsg;
 
 int main()
 {
@@ -51,6 +53,7 @@ int main()
     run_switch.rise(&servoSwitchISR);       // trigger throttle interrupt in both edges
     choke_switch.fall(&servoSwitchISR);     // trigger throttle interrupt in both edges
     run_switch.fall(&servoSwitchISR);       // trigger throttle interrupt in both edges
+    ticker2Hz.attach(&ticker2HzISR, 0.1);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
     ticker20Hz.attach(&ticker20HzISR, 0.05);
 
@@ -113,6 +116,11 @@ void servoSwitchISR()
     state_buffer.push(THROTTLE_ST);
 }
 
+void ticker2HzISR()
+{
+    state_buffer.push(DISPLAY_ST);
+}
+
 void ticker10HzISR()
 {
     state_buffer.push(SPEED_ST);
@@ -126,8 +134,22 @@ void ticker20HzISR()
 /* Interrupt handlers */
 void canHandler()
 {
-    led != led;                                 // debug led
+    CANMsg rxMsg;
+
     can.read(rxMsg);
-    serial.printf("rx");
+    filterMessage(rxMsg);
     CAN_IER |= CAN_IER_FMPIE0;                  // enable RX interrupt
+}
+
+/* General functions */
+void filterMessage(CANMsg msg)
+{
+//    serial.printf("id: %d\r\n", msg.id);
+    
+    if (msg.id == THROTTLE_ID)
+    {
+        switch_clicked = true;
+        state_buffer.push(THROTTLE_ST);
+        msg >> switch_state;
+    }
 }
