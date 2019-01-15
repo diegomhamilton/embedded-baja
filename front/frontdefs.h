@@ -1,10 +1,14 @@
+#ifndef FRONTDEFS_H
+#define FRONTDEFS_H
+#endif
+
 typedef enum
 {
-    IDLE,           // wait
-    SLOW_ACQ,       // acquire battery level data
-    IMU_ACQ,        // acquire accelerometer and gyroscope data
-    SPEED_ACQ,      // calculate speed
-    THROTTLE,       // check throttle position (from user button)
-    DISPLAY,        // send data for display over serial port
-    DEBUG           // send data for debug
-} states_t;
+    IDLE_ST,        // wait
+    SLOWACQ_ST,     // acquire battery level data
+    IMU_ST,         // acquire accelerometer and gyroscope data
+    SPEED_ST,       // calculate speed
+    THROTTLE_ST,    // check throttle position (from user button)
+    DISPLAY_ST,     // send data for display over serial port
+    DEBUG_ST        // send data for debug
+} state_t;
