@@ -1,9 +1,18 @@
+#ifndef DEFINITIONS_H
+#define DEFINITIONS_H
+#endif
 #ifndef MBED_H
     #include "mbed.h"
     #define MBED_H
 #endif
 
-#define BUFFER_SIZE
+#define CAN_IER         (*((volatile unsigned long *)0x40006414))
+
+#define BUFFER_SIZE     50
+#define THROTTLE_MID    0x00
+#define THROTTLE_RUN    0x01
+#define THROTTLE_CHOKE  0x02
+#define THROTTLE_ID     0x100
 
 typedef struct
 {
@@ -35,5 +44,3 @@ typedef struct
     temperature_t temp;
     uint8_t data_saved;
 } packet_t;
-
-extern CircularBuffer <uint8_t, BUFFER_SIZE> state_buffer;
