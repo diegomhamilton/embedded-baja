@@ -12,4 +12,4 @@ typedef enum
     THROTTLE_ST,    // write throttle position (PWM)
     RADIO_ST,       // send data for box via radio (SPI)
     DEBUG_ST        // send data for debug
-} states_t;
+} state_t;
