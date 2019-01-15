@@ -15,19 +15,28 @@ DigitalOut led(PC_13);
 
 /* Interrupt services routine */
 void canISR();
+void servoSwitchISR();
+void ticker5HzISR();
+void ticker10HzISR();
+void frequencyCounterISR();
 /* Interrupt handlers */
 void canHandler();
 /* General functions*/
+void filterMessage(CANMsg msg);
 
 /* Debug variables */
 Timer t;
-/* OS tools */
-Thread eventThread(osPriorityBelowNormal, 1000);
+bool buffer_full = false;
+/* Mbed OS tools */
+Thread eventThread;
 EventQueue queue(1024);
+Ticker ticker5Hz;
+Ticker ticker10Hz;
+CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
 /* Global variables */
 bool switch_clicked = false;
 uint8_t switch_state = 0x00;
-CANMsg rxMsg;
+state_t current_state = IDLE_ST;
 
 int main()
 {
@@ -36,40 +45,62 @@ int main()
     /* Initialization */
     t.start();
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
-    can.attach(&canISR, CAN::RxIrq);
     servo.period_ms(20);                        // set signal frequency to 50Hz
     servo.write(0);                             // disables servo
-    
+    can.attach(&canISR, CAN::RxIrq);
+    ticker5Hz.attach(&ticker5HzISR, 0.2);
+    ticker10Hz.attach(&ticker10HzISR, 0.1);
+
     while (true) {
-        if (switch_clicked)
-        {
-            serial.printf("%d", switch_state);
-            switch (switch_state)
-            {
-                case 0x00:
-                    servo.pulsewidth_us(SERVO_MID);
-                    break;
-                case 0x01:
-                    servo.pulsewidth_us(SERVO_RUN);
-                    break;
-                case 0x02:
-                    servo.pulsewidth_us(SERVO_CHOKE);
-                    break;
-                default:
-                    serial.printf("Choke/run error\r\n");
-                    break;
-            }
-
-            txMsg.clear();
-            txMsg.id = 0x101;                   // set ID
-            txMsg << switch_state;              // append data (8 bytes max)
-            can.write(txMsg);
-
-            switch_clicked = false;
-        }
+        if (state_buffer.full())
+            buffer_full = true;
         else
         {
-            wait_ms(500);
+            buffer_full = false;
+            if (!state_buffer.empty())
+                state_buffer.pop(current_state);
+            else
+                current_state = IDLE_ST;
+        }
+
+        switch (current_state)
+        {
+            case IDLE_ST:
+                Thread::wait(5);
+                break;
+            case SLOWACQ_ST:
+                break;
+            case RPM_ST:
+                break;
+            case THROTTLE_ST:
+                if (switch_clicked)
+                {
+                    switch (switch_state)
+                    {
+                        case 0x00:
+                            servo.pulsewidth_us(SERVO_MID);
+                            break;
+                        case 0x01:
+                            servo.pulsewidth_us(SERVO_RUN);
+                            break;
+                        case 0x02:
+                            servo.pulsewidth_us(SERVO_CHOKE);
+                            break;
+                        default:
+                            serial.printf("Choke/run error\r\n");
+                            break;
+                    }
+
+                    switch_clicked = false;
+                }
+                break;
+            case RADIO_ST:
+                break;
+            case DEBUG_ST:
+                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
+                break;
+            default:
+                break;
         }
     }
 }
@@ -81,12 +112,35 @@ void canISR()
     queue.call(&canHandler);                    // add canHandler() to events queue
 }
 
+void ticker5HzISR()
+{
+    state_buffer.push(SLOWACQ_ST);
+}
+
+void ticker10HzISR()
+{
+    state_buffer.push(RPM_ST);
+}
+
 /* Interrupt handlers */
 void canHandler()
 {
-    led != led;                                 // debug led
+    CANMsg rxMsg;
+
     can.read(rxMsg);
-    switch_clicked = true;
-    rxMsg >> switch_state;
+    filterMessage(rxMsg);
     CAN_IER |= CAN_IER_FMPIE0;                  // enable RX interrupt
+}
+
+/* General functions */
+void filterMessage(CANMsg msg)
+{
+//    serial.printf("id: %d\r\n", msg.id);
+    
+    if (msg.id == THROTTLE_ID)
+    {
+        switch_clicked = true;
+        state_buffer.push(THROTTLE_ST);
+        msg >> switch_state;
+    }
 }
