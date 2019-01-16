@@ -9,6 +9,7 @@
 CAN can(PB_8, PB_9, 1000000);
 Serial serial(PA_2, PA_3, 115200);
 /* I/O pins */
+InterruptIn freq_sensor(PB_10);
 InterruptIn choke_switch(PA_5, PullUp);     // servomotor CHOKE mode
 InterruptIn run_switch(PA_7, PullUp);       // servomotor RUN mode
 /* Debug pins */
@@ -24,7 +25,7 @@ void frequencyCounterISR();
 /* Interrupt handlers */
 void canHandler();
 /* General functions*/
-void filterMessage(CANMsg msg)
+void filterMessage(CANMsg msg);
 
 /* Debug variables */
 Timer t;
@@ -40,6 +41,9 @@ CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
 bool switch_clicked = false;
 uint8_t switch_state = 0x00;
 state_t current_state = IDLE_ST;
+uint8_t pulse_counter = 0;
+uint64_t current_period = 0, last_count = 0;
+float spd = 0;
 
 int main()
 {
@@ -79,6 +83,19 @@ int main()
             case IMU_ST:
                 break;
             case SPEED_ST:
+                freq_sensor.fall(NULL);         // disable interrupt
+                if (current_period != 0)
+                {
+                    spd = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
+                }
+                else
+                {
+                    spd = 0;
+                }
+                pulse_counter = 0;                          
+                current_period = 0;         //|-> reset pulses related variables
+                last_count = t.read_us();        
+                freq_sensor.fall(&frequencyCounterISR);         // enable interrupt
                 break;
             case THROTTLE_ST:
                 if (switch_clicked)
@@ -129,6 +146,13 @@ void ticker10HzISR()
 void ticker20HzISR()
 {
     state_buffer.push(IMU_ST);
+}
+
+void frequencyCounterISR()
+{
+    pulse_counter++;
+    current_period += t.read_us() - last_count;
+    last_count = t.read_us();        
 }
 
 /* Interrupt handlers */
