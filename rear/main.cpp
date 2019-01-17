@@ -9,6 +9,7 @@
 CAN can(PB_8, PB_9, 1000000);
 Serial serial(PA_2, PA_3, 115200);
 /* I/O pins */
+AnalogIn analog(PA_0);
 InterruptIn freq_sensor(PB_5);
 PwmOut servo(PA_6);
 /* Debug pins */
@@ -42,6 +43,8 @@ state_t current_state = IDLE_ST;
 uint8_t pulse_counter = 0;
 uint64_t current_period = 0, last_count = 0;
 float rpm = 0;
+float V_termistor;
+float temp;
 
 int main()
 {
@@ -52,8 +55,8 @@ int main()
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
     servo.period_ms(20);                        // set signal frequency to 50Hz
     servo.write(0);                             // disables servo
-    signal.period_ms(32);                        // set signal frequency to 1/0.032Hz
-    signal.write(0.5f);                          // dutycycle 50%
+    signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
+    signal.write(0.5f);                         // dutycycle 50%
     can.attach(&canISR, CAN::RxIrq);
     ticker5Hz.attach(&ticker5HzISR, 0.2);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
@@ -77,6 +80,9 @@ int main()
                 Thread::wait(5);
                 break;
             case SLOWACQ_ST:
+                V_termistor = VCC*analog.read();
+                temp = (uint16_t)((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
+                state_buffer.push(DEBUG_ST);
                 break;
             case RPM_ST:
                 freq_sensor.fall(NULL);         // disable interrupt
@@ -89,7 +95,7 @@ int main()
                     rpm = 0;
                 }
                 pulse_counter = 0;                          
-                current_period = 0;         //|-> reset pulses related variables
+                current_period = 0;         // reset pulses related variables
                 last_count = t.read_us();        
                 freq_sensor.fall(&frequencyCounterISR);         // enable interrupt
                 break;
@@ -119,7 +125,7 @@ int main()
                 break;
             case DEBUG_ST:
                 serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
-                serial.printf("rpm=%f\r\n", rpm);
+                serial.printf("temp=%f\r\n", temp);
                 break;
             default:
                 break;
