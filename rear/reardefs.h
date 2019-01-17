@@ -3,6 +3,8 @@
 #define SERVO_RUN         866
 #define SERVO_MID         1320
 #define SERVO_CHOKE       1780
+#define VCC               3.3
+#define R_THERM           1000
 
 typedef enum
 {
