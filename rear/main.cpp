@@ -28,7 +28,7 @@ void canHandler();
 void filterMessage(CANMsg msg);
 
 /* Debug variables */
-Timer t;
+Timer t; 
 bool buffer_full = false;
 /* Mbed OS tools */
 Thread eventThread;
@@ -36,16 +36,18 @@ EventQueue queue(1024);
 Ticker ticker5Hz;
 Ticker ticker10Hz;
 CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
+CircularBuffer <imu_t*, BUFFER_SIZE> imu_buffer;
+CircularBuffer <acq_10hz_t*, BUFFER_SIZE> d10hz_buffer;
+CircularBuffer <temperature_t*, BUFFER_SIZE> temp_buffer;
+
 /* Global variables */
 bool switch_clicked = false;
 uint8_t switch_state = 0x00;
 state_t current_state = IDLE_ST;
 uint8_t pulse_counter = 0;
 uint64_t current_period = 0, last_count = 0;
-float rpm = 0;
-float V_termistor;
-float temp;
-
+float V_termistor = 0;
+packet_t data;                                // Create package for radio comunication
 int main()
 {
     /* Main variables */
@@ -81,51 +83,79 @@ int main()
                 break;
             case SLOWACQ_ST:
                 V_termistor = VCC*analog.read();
-                temp = (uint16_t)((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
+                data.temp.motor = (uint16_t)((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
+                temp_buffer.push(&data.temp);
                 state_buffer.push(DEBUG_ST);
                 break;
             case RPM_ST:
                 freq_sensor.fall(NULL);         // disable interrupt
                 if (current_period != 0)
                 {
-                    rpm = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
+                    data.data_10hz[packet_counter[N_RPM]].rpm = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
                 }
                 else
                 {
-                    rpm = 0;
+                    data.data_10hz[packet_counter[N_RPM]].rpm = 0;
                 }
                 pulse_counter = 0;                          
-                current_period = 0;         // reset pulses related variables
+                current_period = 0;                                   // reset pulses related variables
                 last_count = t.read_us();        
-                freq_sensor.fall(&frequencyCounterISR);         // enable interrupt
+                freq_sensor.fall(&frequencyCounterISR);               // enable interrupt
+                if(packet_counter[N_RPM] <1)
+                {
+                    packet_counter[N_RPM]++;
+                }else if(packet_counter[N_RPM] == 1)
+                {   
+                    d10hz_buffer.push(&data.data_10hz);
+                    packet_counter[N_RPM] = 0;
+                }
                 break;
             case THROTTLE_ST:
                 if (switch_clicked)
                 {
+                    data.data_10hz[packet_counter[N_FLAG]].flags &= 0x00;            // Reset all flags
                     switch (switch_state)
                     {
                         case 0x00:
                             servo.pulsewidth_us(SERVO_MID);
+                            data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x03); // Reset Run and Choke flags
                             break;
                         case 0x01:
                             servo.pulsewidth_us(SERVO_RUN);
+                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x01;    // Set Run flag
                             break;
                         case 0x02:
                             servo.pulsewidth_us(SERVO_CHOKE);
+                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x02;    // Set Choke flag
                             break;
                         default:
                             serial.printf("Choke/run error\r\n");
+                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x40;    // Set Servo Error flag
                             break;
                     }
 
                     switch_clicked = false;
+                }
+                if(packet_counter[N_FLAG] <1)
+                {
+                    packet_counter[N_FLAG]++;
+                }else if(packet_counter[N_FLAG] == 1)
+                {
+                    packet_counter[N_FLAG] = 0;
                 }
                 break;
             case RADIO_ST:
                 break;
             case DEBUG_ST:
                 serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
-                serial.printf("temp=%f\r\n", temp);
+                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
+                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
+                serial.printf("imu acc x =%d\r\n", data.imu[packet_counter[N_IMU]].acc_x);
+                serial.printf("imu acc y =%d\r\n", data.imu[packet_counter[N_IMU]].acc_y);
+                serial.printf("imu acc z =%d\r\n", data.imu[packet_counter[N_IMU]].acc_z);
+                serial.printf("imu dps x =%d\r\n", data.imu[packet_counter[N_IMU]].dps_x);
+                serial.printf("imu dps y =%d\r\n", data.imu[packet_counter[N_IMU]].dps_y);
+                serial.printf("imu dps z =%d\r\n", data.imu[packet_counter[N_IMU]].dps_z);
                 break;
             default:
                 break;
@@ -180,4 +210,26 @@ void filterMessage(CANMsg msg)
         state_buffer.push(THROTTLE_ST);
         msg >> switch_state;
     }
+    if(msg.id == IMU_ACC_ID)
+    {
+        msg >> data.imu[packet_counter[N_IMU]].acc_x >> data.imu[packet_counter[N_IMU]].acc_y
+                         >> data.imu[packet_counter[N_IMU]].acc_z;
+    }
+    else if(msg.id == IMU_DPS_ID)
+    {
+        msg >> data.imu[packet_counter[N_IMU]].dps_x >> data.imu[packet_counter[N_IMU]].dps_y
+                         >> data.imu[packet_counter[N_IMU]].dps_z;
+        if(packet_counter[N_IMU] <3)
+                {
+                    packet_counter[N_IMU]++;
+                }else if(packet_counter[N_IMU] == 3)
+                {
+                    packet_counter[N_IMU] = 0;
+                }
+    }
+    else if(msg.id == SPEED_ID)
+    {
+        msg >> data.data_10hz[packet_counter[N_SPEED]].speed;
+    }
+
 }
