@@ -101,45 +101,49 @@ int main()
                 current_period = 0;                                   // reset pulses related variables
                 last_count = t.read_us();        
                 freq_sensor.fall(&frequencyCounterISR);               // enable interrupt
-                if(packet_counter[N_RPM] <1)
+                
+                if (packet_counter[N_RPM] <1)
                 {
                     packet_counter[N_RPM]++;
-                }else if(packet_counter[N_RPM] == 1)
+                }
+                else if (packet_counter[N_RPM] == 1)
                 {   
-                    d10hz_buffer.push(&data.data_10hz);
+                    d10hz_buffer.push(data.data_10hz);
                     packet_counter[N_RPM] = 0;
                 }
                 break;
             case THROTTLE_ST:
                 if (switch_clicked)
                 {
-                    data.data_10hz[packet_counter[N_FLAG]].flags &= 0x00;            // Reset all flags
+                    data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x07);         // reset servo-related flags
                     switch (switch_state)
                     {
                         case 0x00:
                             servo.pulsewidth_us(SERVO_MID);
-                            data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x03); // Reset Run and Choke flags
+                            data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x03); // reset run and choke flags
                             break;
                         case 0x01:
                             servo.pulsewidth_us(SERVO_RUN);
-                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x01;    // Set Run flag
+                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x01;    // set run flag
                             break;
                         case 0x02:
                             servo.pulsewidth_us(SERVO_CHOKE);
-                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x02;    // Set Choke flag
+                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x02;    // set choke flag
                             break;
                         default:
                             serial.printf("Choke/run error\r\n");
-                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x40;    // Set Servo Error flag
+                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x04;    // set servo error flag
                             break;
                     }
 
                     switch_clicked = false;
                 }
-                if(packet_counter[N_FLAG] <1)
+                
+                if (packet_counter[N_FLAG] <1)
                 {
                     packet_counter[N_FLAG]++;
-                }else if(packet_counter[N_FLAG] == 1)
+                }
+                else if (packet_counter[N_FLAG] == 1)
                 {
                     packet_counter[N_FLAG] = 0;
                 }
@@ -180,13 +184,11 @@ void ticker10HzISR()
     state_buffer.push(RPM_ST);
 }
 
-
 void frequencyCounterISR()
 {
     pulse_counter++;
     current_period += t.read_us() - last_count;
-    last_count = t.read_us();
-        
+    last_count = t.read_us();      
 }
 
 /* Interrupt handlers */
@@ -202,34 +204,32 @@ void canHandler()
 /* General functions */
 void filterMessage(CANMsg msg)
 {
-//    serial.printf("id: %d\r\n", msg.id);
-    
     if (msg.id == THROTTLE_ID)
     {
         switch_clicked = true;
         state_buffer.push(THROTTLE_ST);
         msg >> switch_state;
     }
-    if(msg.id == IMU_ACC_ID)
+    else if (msg.id == IMU_ACC_ID)
     {
         msg >> data.imu[packet_counter[N_IMU]].acc_x >> data.imu[packet_counter[N_IMU]].acc_y
                          >> data.imu[packet_counter[N_IMU]].acc_z;
     }
-    else if(msg.id == IMU_DPS_ID)
+    else if (msg.id == IMU_DPS_ID)
     {
         msg >> data.imu[packet_counter[N_IMU]].dps_x >> data.imu[packet_counter[N_IMU]].dps_y
                          >> data.imu[packet_counter[N_IMU]].dps_z;
-        if(packet_counter[N_IMU] <3)
-                {
-                    packet_counter[N_IMU]++;
-                }else if(packet_counter[N_IMU] == 3)
-                {
-                    packet_counter[N_IMU] = 0;
-                }
+        if (packet_counter[N_IMU] <3)
+        {
+            packet_counter[N_IMU]++;
+        }
+        else if (packet_counter[N_IMU] == 3)
+        {
+            packet_counter[N_IMU] = 0;
+        }
     }
-    else if(msg.id == SPEED_ID)
+    else if (msg.id == SPEED_ID)
     {
         msg >> data.data_10hz[packet_counter[N_SPEED]].speed;
     }
-
 }
