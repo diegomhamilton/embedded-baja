@@ -1,6 +1,6 @@
 #ifndef DEFINITIONS_H
 #define DEFINITIONS_H
-#endif
+
 #ifndef MBED_H
     #include "mbed.h"
     #define MBED_H
@@ -29,15 +29,15 @@ typedef struct
     uint16_t acc_x;
     uint16_t acc_y;
     uint16_t acc_z;
-    uint16_t gyro_x;
-    uint16_t gyro_y;
-    uint16_t gyro_z;
+    uint16_t dps_x;
+    uint16_t dps_y;
+    uint16_t dps_z;
 } imu_t;
     
 typedef struct
 {
     uint16_t rpm;
-    uint16_t vel;
+    uint16_t speed;
     uint8_t flags;      // MSB - BOX | SERVO_ERROR | NC | NC | NC | NC | CHK | RUN - LSB
 } acq_10hz_t;
     
@@ -54,3 +54,5 @@ typedef struct
     temperature_t temp;
     uint8_t data_saved;
 } packet_t;
+
+#endif
