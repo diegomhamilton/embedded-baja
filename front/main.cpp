@@ -4,6 +4,8 @@
 #include "definitions.h"
 #include "frontdefs.h"
 #include "CANMsg.h"
+#include "LSM6DS3.h"
+#include "Kalman.h"
 
 /* Communication protocols */
 CAN can(PB_8, PB_9, 1000000);
@@ -26,6 +28,7 @@ void frequencyCounterISR();
 void canHandler();
 /* General functions*/
 void filterMessage(CANMsg msg);
+void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t gry, int16_t grz, int16_t dt);
 
 /* Debug variables */
 Timer t;
@@ -42,8 +45,11 @@ bool switch_clicked = false;
 uint8_t switch_state = 0x00;
 state_t current_state = IDLE_ST;
 uint8_t pulse_counter = 0;
-uint64_t current_period = 0, last_count = 0;
-float spd = 0;
+uint64_t current_period = 0, last_count = 0, last_acq = 0;
+float speed = 0, angle_roll = 0, angle_pitch = 0;
+int16_t acc_x = 0, acc_y = 0, acc_z = 0, dps_x = 0, dps_y = 0, dps_z = 0;
+uint16_t dt = 0;
+packet_t data;
 
 int main()
 {
@@ -60,7 +66,12 @@ int main()
     ticker2Hz.attach(&ticker2HzISR, 0.1);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
     ticker20Hz.attach(&ticker20HzISR, 0.05);
-
+    LSM6DS3 LSM6DS3(PB_7, PB_6);
+    uint16_t lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS,  \
+                                      LSM6DS3.A_SCALE_2G,      \
+                                      LSM6DS3.G_ODR_26_BW_2,   \
+                                      LSM6DS3.A_ODR_26); 
+                   
     while (true) {
         if (state_buffer.full())
             buffer_full = true;
@@ -81,21 +92,46 @@ int main()
             case SLOWACQ_ST:
                 break;
             case IMU_ST:
+                LSM6DS3.readAccel();                        // read accelerometer data into LSM6DS3.aN_raw
+                LSM6DS3.readGyro();                         //  "   gyroscope data into LSM6DS3.gN_raw
+                dt = t.read_ms() - last_acq;
+                last_acq = t.read_ms();
+                acc_x = LSM6DS3.ax_raw;
+                acc_y = LSM6DS3.ay_raw;
+                acc_z = LSM6DS3.az_raw;
+                dps_x = LSM6DS3.gx_raw;
+                dps_y = LSM6DS3.gy_raw;
+                dps_z = LSM6DS3.gz_raw;
+                calcAngles(acc_x, acc_y, acc_z, dps_x, dps_y, dps_z, dt);
+                 /* Send accelerometer data */
+                txMsg.clear(IMU_ACC_ID);
+                txMsg << acc_x << acc_y << acc_z;
+                if(can.write(txMsg))
+                {
+                    /* Send gyroscope data only if accelerometer data succeeds */
+                    txMsg.clear(IMU_DPS_ID);
+                    txMsg << dps_x << dps_y << dps_z << dt;
+                    can.write(txMsg);
+                }
                 break;
             case SPEED_ST:
                 freq_sensor.fall(NULL);         // disable interrupt
                 if (current_period != 0)
                 {
-                    spd = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
+                    speed = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
                 }
                 else
                 {
-                    spd = 0;
+                    speed = 0;
                 }
                 pulse_counter = 0;                          
                 current_period = 0;         //|-> reset pulses related variables
                 last_count = t.read_us();        
                 freq_sensor.fall(&frequencyCounterISR);         // enable interrupt
+                /* Send speed data */
+                txMsg.clear(SPEED_ID);
+                txMsg << speed;
+                can.write(txMsg);
                 break;
             case THROTTLE_ST:
                 if (switch_clicked)
@@ -113,6 +149,7 @@ int main()
                 break;
             case DEBUG_ST:
                 serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
+                serial.printf("roll=%f, pitch=%f\r\n", angle_roll, angle_pitch);
                 break;
             default:
                 break;
@@ -176,4 +213,49 @@ void filterMessage(CANMsg msg)
         state_buffer.push(THROTTLE_ST);
         msg >> switch_state;
     }
+}
+
+/* Function adapted from Kristian Lauszus library example, source: https://github.com/TKJElectronics/KalmanFilter*/
+void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t gry, int16_t grz, int16_t dt){
+    static Kalman kalmanX, kalmanY;
+    float kalAngleX, kalAngleY;
+    float pitch, roll;
+    float gyroXrate, gyroYrate;
+    float ax, ay, az;
+    static bool first_execution = true;
+    
+    ax = (float) accx * TO_G;
+    ay = (float) accy * TO_G;
+    az = (float) accz * TO_G;
+    pitch = atan2(ay, az) * RAD_TO_DEGREE;
+    roll = atan(-ax / sqrt(ay * ay + az * az)) * RAD_TO_DEGREE;
+    gyroXrate = grx / TO_DPS;                            // Convert to deg/s
+    gyroYrate = gry / TO_DPS;                            // Convert to deg/s
+
+    if (first_execution)
+    {
+        // set starting angle if first execution
+        first_execution = false;
+        kalmanX.setAngle(roll);
+        kalmanY.setAngle(pitch);
+    }
+    // This fixes the transition problem when the accelerometer angle jumps between -180 and 180 degrees
+    if((roll < -90 && kalAngleX > 90) || (roll > 90 && kalAngleX < -90))
+    {
+        kalmanX.setAngle(roll);
+        kalAngleX = roll;
+    }
+    else
+    {
+        kalAngleX = kalmanX.getAngle(roll, gyroXrate, dt); // Calculate the angle using a Kalman filter
+    }
+
+    if(abs(kalAngleX) > 90)
+    {
+        gyroYrate = -gyroYrate; // Invert rate, so it fits the restriced accelerometer reading
+    }
+    kalAngleY = kalmanY.getAngle(pitch, gyroYrate, dt);
+
+    angle_roll = kalAngleX;
+    angle_pitch = kalAngleY;
 }
