@@ -4,10 +4,12 @@
 #include "definitions.h"
 #include "reardefs.h"
 #include "CANMsg.h"
+#include "RFM69.h"
 
 /* Communication protocols */
 CAN can(PB_8, PB_9, 1000000);
-Serial serial(PA_2, PA_3, 115200);
+Serial serial(PA_2, PA_3, 115200); 
+RFM69 radio(PB_15, PB_14, PB_13, PB_12, PA_8); // RFM69::RFM69(PinName  PinName mosi, PinName miso, PinName sclk,slaveSelectPin, PinName int)
 /* I/O pins */
 AnalogIn analog(PA_0);
 InterruptIn freq_sensor(PB_5);
@@ -48,6 +50,7 @@ uint8_t pulse_counter = 0;
 uint64_t current_period = 0, last_count = 0;
 float V_termistor = 0;
 packet_t data;                                // Create package for radio comunication
+
 int main()
 {
     /* Main variables */
@@ -59,6 +62,9 @@ int main()
     servo.write(0);                             // disables servo
     signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
     signal.write(0.5f);                         // dutycycle 50%
+    radio.initialize(FREQUENCY_915MHZ, NODE_ID, NETWORK_ID);
+    radio.encrypt(0);
+    radio.setPowerLevel(20);
     can.attach(&canISR, CAN::RxIrq);
     ticker5Hz.attach(&ticker5HzISR, 0.2);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
@@ -149,17 +155,20 @@ int main()
                 }
                 break;
             case RADIO_ST:
+                radio.sendWithRetry((uint8_t)BOXRADIO_ID, &data, sizeof(packet_t), true, 1);     // request ACK with 1 retry (waitTime = 40ms)
                 break;
             case DEBUG_ST:
-                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
-                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
-                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
-                serial.printf("imu acc x =%d\r\n", data.imu[packet_counter[N_IMU]].acc_x);
-                serial.printf("imu acc y =%d\r\n", data.imu[packet_counter[N_IMU]].acc_y);
-                serial.printf("imu acc z =%d\r\n", data.imu[packet_counter[N_IMU]].acc_z);
-                serial.printf("imu dps x =%d\r\n", data.imu[packet_counter[N_IMU]].dps_x);
-                serial.printf("imu dps y =%d\r\n", data.imu[packet_counter[N_IMU]].dps_y);
-                serial.printf("imu dps z =%d\r\n", data.imu[packet_counter[N_IMU]].dps_z);
+                serial.printf("radio state pushed");
+                state_buffer.push(RADIO_ST);
+//                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
+//                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
+//                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
+//                serial.printf("imu acc x =%d\r\n", data.imu[packet_counter[N_IMU]].acc_x);
+//                serial.printf("imu acc y =%d\r\n", data.imu[packet_counter[N_IMU]].acc_y);
+//                serial.printf("imu acc z =%d\r\n", data.imu[packet_counter[N_IMU]].acc_z);
+//                serial.printf("imu dps x =%d\r\n", data.imu[packet_counter[N_IMU]].dps_x);
+//                serial.printf("imu dps y =%d\r\n", data.imu[packet_counter[N_IMU]].dps_y);
+//                serial.printf("imu dps z =%d\r\n", data.imu[packet_counter[N_IMU]].dps_z);
                 break;
             default:
                 break;
