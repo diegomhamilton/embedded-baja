@@ -72,9 +72,13 @@ int main()
     
     while (true) {
         if (state_buffer.full())
+        {
             buffer_full = true;
+            led = 0;
+        }    
         else
         {
+            led = 1;
             buffer_full = false;
             if (!state_buffer.empty())
                 state_buffer.pop(current_state);
@@ -85,13 +89,13 @@ int main()
         switch (current_state)
         {
             case IDLE_ST:
-                Thread::wait(5);
+//                Thread::wait(5);
                 break;
             case SLOWACQ_ST:
                 V_termistor = VCC*analog.read();
                 data.temp.motor = (uint16_t)((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
                 temp_buffer.push(&data.temp);
-                state_buffer.push(DEBUG_ST);
+//                state_buffer.push(DEBUG_ST);
                 break;
             case RPM_ST:
                 freq_sensor.fall(NULL);         // disable interrupt
@@ -160,7 +164,7 @@ int main()
             case DEBUG_ST:
                 serial.printf("radio state pushed");
                 state_buffer.push(RADIO_ST);
-//                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
+                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
 //                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
 //                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
 //                serial.printf("imu acc x =%d\r\n", data.imu[packet_counter[N_IMU]].acc_x);

@@ -74,9 +74,13 @@ int main()
                    
     while (true) {
         if (state_buffer.full())
+        {
             buffer_full = true;
+            led = 0;
+        }
         else
         {
+            led = 1;
             buffer_full = false;
             if (!state_buffer.empty())
                 state_buffer.pop(current_state);
@@ -87,7 +91,7 @@ int main()
         switch (current_state)
         {
             case IDLE_ST:
-                Thread::wait(5);
+//                Thread::wait(2);
                 break;
             case SLOWACQ_ST:
                 break;
@@ -125,13 +129,14 @@ int main()
                     speed = 0;
                 }
                 pulse_counter = 0;                          
-                current_period = 0;         //|-> reset pulses related variables
+                current_period = 0;                         //|-> reset pulses related variables
                 last_count = t.read_us();        
-                freq_sensor.fall(&frequencyCounterISR);         // enable interrupt
+                freq_sensor.fall(&frequencyCounterISR);     // enable interrupt
                 /* Send speed data */
                 txMsg.clear(SPEED_ID);
                 txMsg << speed;
                 can.write(txMsg);
+//                state_buffer.push(DEBUG_ST);                // debug
                 break;
             case THROTTLE_ST:
                 if (switch_clicked)
@@ -139,7 +144,7 @@ int main()
                     switch_state = !choke_switch.read() << 1 | !run_switch.read() << 0;
                     /* Send CAN message */
                     txMsg.clear(THROTTLE_ID);
-                    txMsg << switch_state;              // append data (8 bytes max)
+                    txMsg << switch_state;                  // append data (8 bytes max)
                     can.write(txMsg);
                     
                     switch_clicked = false;
