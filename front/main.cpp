@@ -23,6 +23,7 @@ void servoSwitchISR();
 void ticker2HzISR();
 void ticker10HzISR();
 void ticker20HzISR();
+void tickerTrottleISR();
 void frequencyCounterISR();
 /* Interrupt handlers */
 void canHandler();
@@ -33,12 +34,15 @@ void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t g
 /* Debug variables */
 Timer t;
 bool buffer_full = false;
+uint32_t counter = 0;
+Timer trottle_tim;
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
 Ticker ticker2Hz;
 Ticker ticker10Hz;
 Ticker ticker20Hz;
+Ticker tickerTrottle;
 CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
 /* Global variables */
 bool switch_clicked = false;
@@ -73,6 +77,16 @@ int main()
                                       LSM6DS3.A_ODR_26); 
                    
     while (true) {
+        if(trottle_tim.read_ms() >= 100)
+        {
+            trottle_tim.stop();
+            trottle_tim.reset();
+            choke_switch.rise(&servoSwitchISR);     // trigger throttle interrupt in both edges
+            run_switch.rise(&servoSwitchISR);       // trigger throttle interrupt in both edges
+            choke_switch.fall(&servoSwitchISR);     // trigger throttle interrupt in both edges
+            run_switch.fall(&servoSwitchISR);       // trigger throttle interrupt in both edges
+        }
+        serial.printf("%d\r\n", counter);
         if (state_buffer.full())
         {
             buffer_full = true;
@@ -171,6 +185,12 @@ void canISR()
 
 void servoSwitchISR()
 {
+    counter++;
+    trottle_tim.start();
+    choke_switch.rise(NULL);     //  throttle interrupt in both edges dettach
+    run_switch.rise(NULL);       //  throttle interrupt in both edges dettach
+    choke_switch.fall(NULL);     //  throttle interrupt in both edges dettach
+    run_switch.fall(NULL);       //  throttle interrupt in both edges dettach
     switch_clicked = true;
     state_buffer.push(THROTTLE_ST);
 }
