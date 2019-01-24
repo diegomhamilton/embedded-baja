@@ -32,15 +32,19 @@ void filterMessage(CANMsg msg);
 /* Debug variables */
 Timer t; 
 bool buffer_full = false;
+DigitalOut dbg1(PB_4);
+DigitalOut dbg2(PB_5);
+
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
 Ticker ticker5Hz;
 Ticker ticker10Hz;
 CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
-CircularBuffer <imu_t*, BUFFER_SIZE> imu_buffer;
-CircularBuffer <acq_10hz_t*, BUFFER_SIZE> d10hz_buffer;
-CircularBuffer <temperature_t*, BUFFER_SIZE> temp_buffer;
+CircularBuffer <imu_t*, 20> imu_buffer;
+CircularBuffer <acq_10hz_t*, 10> d10hz_buffer;
+CircularBuffer <temperature_t, 10> temp_buffer;
+CircularBuffer <packet_t, 10> radio_buffer;
 
 /* Global variables */
 bool switch_clicked = false;
@@ -50,6 +54,7 @@ uint8_t pulse_counter = 0;
 uint64_t current_period = 0, last_count = 0;
 float V_termistor = 0;
 packet_t data;                                // Create package for radio comunication
+packet_t radio_packet;
 
 int main()
 {
@@ -87,15 +92,15 @@ int main()
         }
 
         switch (current_state)
-        {
+        {   
             case IDLE_ST:
-//                Thread::wait(5);
+//              Thread::wait(1);
                 break;
             case SLOWACQ_ST:
                 V_termistor = VCC*analog.read();
                 data.temp.motor = (uint16_t)((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
-                temp_buffer.push(&data.temp);
-//                state_buffer.push(DEBUG_ST);
+                temp_buffer.push(data.temp);
+                state_buffer.push(DEBUG_ST);
                 break;
             case RPM_ST:
                 freq_sensor.fall(NULL);         // disable interrupt
@@ -112,7 +117,7 @@ int main()
                 last_count = t.read_us();        
                 freq_sensor.fall(&frequencyCounterISR);               // enable interrupt
                 
-                if (packet_counter[N_RPM] <1)
+                if (packet_counter[N_RPM] < 1)
                 {
                     packet_counter[N_RPM]++;
                 }
@@ -123,6 +128,7 @@ int main()
                 }
                 break;
             case THROTTLE_ST:
+                dbg1 = !dbg1;
                 if (switch_clicked)
                 {
                     data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x07);         // reset servo-related flags
@@ -159,12 +165,24 @@ int main()
                 }
                 break;
             case RADIO_ST:
-                radio.sendWithRetry((uint8_t)BOXRADIO_ID, &data, sizeof(packet_t), true, 1);     // request ACK with 1 retry (waitTime = 40ms)
+                imu_t* temp_imu;
+                imu_buffer.pop(temp_imu);
+                acq_10hz_t* temp_10hz;
+                d10hz_buffer.pop(temp_10hz);
+                if((!imu_buffer.empty()) && (!d10hz_buffer.empty()) && (!temp_buffer.empty()))
+                {
+                    memcpy(&radio_packet.imu,temp_imu, 4*sizeof(imu_t));
+                    memcpy(&radio_packet.data_10hz,temp_10hz, 2*sizeof(acq_10hz_t));
+                    temp_buffer.pop(radio_packet.temp);
+//                  memcpy(&radio_packet.temp,temp_temperature, sizeof(temperature_t));
+                }
+            
+                radio.sendWithRetry((uint8_t)BOXRADIO_ID, &radio_packet, sizeof(packet_t), true, 1);     // request ACK with 1 retry (waitTime = 40ms)
                 break;
             case DEBUG_ST:
                 serial.printf("radio state pushed");
                 state_buffer.push(RADIO_ST);
-                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
+//                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
 //                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
 //                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
 //                serial.printf("imu acc x =%d\r\n", data.imu[packet_counter[N_IMU]].acc_x);
@@ -238,6 +256,7 @@ void filterMessage(CANMsg msg)
         }
         else if (packet_counter[N_IMU] == 3)
         {
+            imu_buffer.push(data.imu);
             packet_counter[N_IMU] = 0;
         }
     }
