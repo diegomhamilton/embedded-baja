@@ -17,7 +17,9 @@ PwmOut servo(PA_6);
 /* Debug pins */
 PwmOut signal(PA_7);
 DigitalOut led(PC_13);
-
+DigitalOut dbg1(PC_14);
+DigitalOut dbg2(PC_15);
+DigitalOut dbg3(PA_1);
 /* Interrupt services routine */
 void canISR();
 void servoSwitchISR();
@@ -32,15 +34,13 @@ void filterMessage(CANMsg msg);
 /* Debug variables */
 Timer t; 
 bool buffer_full = false;
-DigitalOut dbg1(PB_4);
-DigitalOut dbg2(PB_5);
 
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
 Ticker ticker5Hz;
 Ticker ticker10Hz;
-CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
+CircularBuffer <state_t, 2*BUFFER_SIZE> state_buffer;
 CircularBuffer <imu_t*, 20> imu_buffer;
 CircularBuffer <acq_10hz_t*, 10> d10hz_buffer;
 CircularBuffer <temperature_t, 10> temp_buffer;
@@ -97,12 +97,14 @@ int main()
 //              Thread::wait(1);
                 break;
             case SLOWACQ_ST:
+                dbg1 = !dbg1;
                 V_termistor = VCC*analog.read();
                 data.temp.motor = (uint16_t)((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
                 temp_buffer.push(data.temp);
                 state_buffer.push(DEBUG_ST);
                 break;
             case RPM_ST:
+                dbg2 = !dbg2;
                 freq_sensor.fall(NULL);         // disable interrupt
                 if (current_period != 0)
                 {
@@ -128,21 +130,23 @@ int main()
                 }
                 break;
             case THROTTLE_ST:
-                dbg1 = !dbg1;
                 if (switch_clicked)
                 {
                     data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x07);         // reset servo-related flags
                     switch (switch_state)
                     {
                         case 0x00:
+                            dbg3 = !dbg3;
                             servo.pulsewidth_us(SERVO_MID);
                             data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x03); // reset run and choke flags
                             break;
                         case 0x01:
+                            dbg3 = !dbg3;
                             servo.pulsewidth_us(SERVO_RUN);
                             data.data_10hz[packet_counter[N_FLAG]].flags |= 0x01;    // set run flag
                             break;
                         case 0x02:
+                            dbg3 = !dbg3;
                             servo.pulsewidth_us(SERVO_CHOKE);
                             data.data_10hz[packet_counter[N_FLAG]].flags |= 0x02;    // set choke flag
                             break;
@@ -165,23 +169,23 @@ int main()
                 }
                 break;
             case RADIO_ST:
-                imu_t* temp_imu;
-                imu_buffer.pop(temp_imu);
-                acq_10hz_t* temp_10hz;
-                d10hz_buffer.pop(temp_10hz);
                 if((!imu_buffer.empty()) && (!d10hz_buffer.empty()) && (!temp_buffer.empty()))
                 {
+                    
+                    imu_t* temp_imu;
+                    imu_buffer.pop(temp_imu);
+                    acq_10hz_t* temp_10hz;
+                    d10hz_buffer.pop(temp_10hz);
                     memcpy(&radio_packet.imu,temp_imu, 4*sizeof(imu_t));
                     memcpy(&radio_packet.data_10hz,temp_10hz, 2*sizeof(acq_10hz_t));
                     temp_buffer.pop(radio_packet.temp);
-//                  memcpy(&radio_packet.temp,temp_temperature, sizeof(temperature_t));
                 }
             
-                radio.sendWithRetry((uint8_t)BOXRADIO_ID, &radio_packet, sizeof(packet_t), true, 1);     // request ACK with 1 retry (waitTime = 40ms)
+                radio.send((uint8_t)BOXRADIO_ID, &radio_packet, sizeof(packet_t), true);     // request ACK with 1 retry (waitTime = 40ms)
                 break;
             case DEBUG_ST:
-                serial.printf("radio state pushed");
-                state_buffer.push(RADIO_ST);
+//                serial.printf("radio state pushed");
+                  state_buffer.push(RADIO_ST);
 //                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
 //                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
 //                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
