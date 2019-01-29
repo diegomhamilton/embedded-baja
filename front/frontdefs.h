@@ -1,11 +1,13 @@
 #ifndef FRONTDEFS_H
 #define FRONTDEFS_H
 
-/* Kalman's filter definitions */
-#define PI              3.1416
-#define RAD_TO_DEGREE   180.0/PI
-#define TO_G            2.0/32768.0
-#define TO_DPS          245.0/32768.0
+/* Conversion definitions */
+#define WHEEL_DIAMETER   0.5842   // in m
+#define PI               3.1416
+#define RAD_TO_DEGREE    180.0/PI
+#define TO_G             2.0/32768.0
+#define TO_DPS           245.0/32768.0
+#define WHEEL_HOLE_NUMBER  10
 
 typedef enum
 {
