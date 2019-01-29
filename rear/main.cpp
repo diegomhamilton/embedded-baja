@@ -20,6 +20,7 @@ DigitalOut led(PC_13);
 DigitalOut dbg1(PC_14);
 DigitalOut dbg2(PC_15);
 DigitalOut dbg3(PA_1);
+DigitalOut dbg4(PA_4);
 /* Interrupt services routine */
 void canISR();
 void servoSwitchISR();
@@ -99,9 +100,13 @@ int main()
             case SLOWACQ_ST:
                 dbg1 = !dbg1;
                 V_termistor = VCC*analog.read();
-                data.temp.motor = (uint16_t)((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
+                data.temp.motor = ((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
+                /* Send temperature data */
+                txMsg.clear(TEMPERATURE_ID);
+                txMsg << data.temp.motor;
+                can.write(txMsg);
                 temp_buffer.push(data.temp);
-                state_buffer.push(DEBUG_ST);
+                state_buffer.push(RADIO_ST);
                 break;
             case RPM_ST:
                 dbg2 = !dbg2;
@@ -114,6 +119,11 @@ int main()
                 {
                     data.data_10hz[packet_counter[N_RPM]].rpm = 0;
                 }
+                /* Send rpm data */
+                txMsg.clear(RPM_ID);
+                txMsg << data.data_10hz[packet_counter[N_RPM]].rpm;
+                can.write(txMsg);
+                /* prepare to re-init rpm counter */
                 pulse_counter = 0;                          
                 current_period = 0;                                   // reset pulses related variables
                 last_count = t.read_us();        
@@ -169,6 +179,7 @@ int main()
                 }
                 break;
             case RADIO_ST:
+                dbg4 = !dbg4;
                 if((!imu_buffer.empty()) && (!d10hz_buffer.empty()) && (!temp_buffer.empty()))
                 {
                     
@@ -185,7 +196,6 @@ int main()
                 break;
             case DEBUG_ST:
 //                serial.printf("radio state pushed");
-                  state_buffer.push(RADIO_ST);
 //                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
 //                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
 //                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
@@ -267,5 +277,7 @@ void filterMessage(CANMsg msg)
     else if (msg.id == SPEED_ID)
     {
         msg >> data.data_10hz[packet_counter[N_SPEED]].speed;
+        serial.printf("\r\nspeed = %d\r\n",data.data_10hz[packet_counter[N_SPEED]].speed);
+//      d10hz_buffer.push(data.data_10hz);
     }
 }
