@@ -57,10 +57,7 @@ uint8_t switch_state = 0x00, pulse_counter = 0, temp_motor = 0;
 state_t current_state = IDLE_ST;
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
 float speed_hz = 0, angle_roll = 0, angle_pitch = 0;
-uint16_t rpm_hz = 0, speed_display = 0, speed_radio = 0, dt = 0, lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, \
-                                                                                       LSM6DS3.A_SCALE_2G,     \
-                                                                                       LSM6DS3.G_ODR_26_BW_2,  \
-                                                                                       LSM6DS3.A_ODR_26); 
+uint16_t rpm_hz = 0, speed_display = 0, speed_radio = 0, dt = 0; 
 packet_t data;
 
 int main()
@@ -78,7 +75,7 @@ int main()
     ticker2Hz.attach(&ticker2HzISR, 0.1);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
     ticker20Hz.attach(&ticker20HzISR, 0.05);
-                   
+    uint16_t lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26); 
     while (true) {
         if (state_buffer.full())
         {
@@ -108,6 +105,7 @@ int main()
                 LSM6DS3.readGyro();                         //  "   gyroscope data into LSM6DS3.gN_raw
                 dt = t.read_ms() - last_acq;
                 last_acq = t.read_ms();
+//                serial.printf("accz = %d\r\n", LSM6DS3.gz_raw);
                 calcAngles(LSM6DS3.ax_raw, LSM6DS3.ay_raw, LSM6DS3.ay_raw, LSM6DS3.gx_raw, LSM6DS3.gy_raw, LSM6DS3.gz_raw, dt);
                  /* Send accelerometer data */
                 txMsg.clear(IMU_ACC_ID);
@@ -132,7 +130,7 @@ int main()
                     speed_hz = 0;
                 }
                 speed_display = ((float)(PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLE_NUMBER);    // make conversion hz to km/h
-                speed_radio = ((float)(speed_display*65535)/60);
+                speed_radio = ((float)((speed_display)/60)*65535);
                 pulse_counter = 0;                          
                 current_period = 0;                         //|-> reset pulses related variables
                 last_count = t.read_us();        
