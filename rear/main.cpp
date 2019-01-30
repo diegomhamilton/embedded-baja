@@ -119,6 +119,7 @@ int main()
                 {
                     data.data_10hz[packet_counter[N_RPM]].rpm = 0;
                 }
+                serial.printf("rpm = %d\r\n",data.data_10hz[packet_counter[N_RPM]].rpm);
                 /* Send rpm data */
                 txMsg.clear(RPM_ID);
                 txMsg << data.data_10hz[packet_counter[N_RPM]].rpm;
@@ -190,9 +191,9 @@ int main()
                     memcpy(&radio_packet.imu,temp_imu, 4*sizeof(imu_t));
                     memcpy(&radio_packet.data_10hz,temp_10hz, 2*sizeof(acq_10hz_t));
                     temp_buffer.pop(radio_packet.temp);
+                    radio.send((uint8_t)BOXRADIO_ID, &radio_packet, sizeof(packet_t), true);     // request ACK with 1 retry (waitTime = 40ms)
                 }
             
-                radio.send((uint8_t)BOXRADIO_ID, &radio_packet, sizeof(packet_t), true);     // request ACK with 1 retry (waitTime = 40ms)
                 break;
             case DEBUG_ST:
 //                serial.printf("radio state pushed");
@@ -277,7 +278,7 @@ void filterMessage(CANMsg msg)
     else if (msg.id == SPEED_ID)
     {
         msg >> data.data_10hz[packet_counter[N_SPEED]].speed;
-        serial.printf("\r\nspeed = %d\r\n",data.data_10hz[packet_counter[N_SPEED]].speed);
+//      serial.printf("\r\nspeed = %d\r\n",data.data_10hz[packet_counter[N_SPEED]].speed);
 //      d10hz_buffer.push(data.data_10hz);
     }
 }
