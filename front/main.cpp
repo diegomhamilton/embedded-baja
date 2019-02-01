@@ -13,9 +13,13 @@ Serial serial(PA_2, PA_3, 115200);
 LSM6DS3 LSM6DS3(PB_7, PB_6);
 
 /* I/O pins */
-InterruptIn freq_sensor(PB_10);
+InterruptIn freq_sensor(PB_10, PullNone);
 InterruptIn choke_switch(PA_5, PullUp);     // servomotor CHOKE mode
 InterruptIn run_switch(PA_7, PullUp);       // servomotor RUN mode
+InterruptIn horn_button(PB_1, PullUp);
+InterruptIn headlight_switch(PB_0, PullUp);
+DigitalOut horn(PB_11);
+DigitalOut headlight(PA_1);
 /* Debug pins */
 DigitalOut led(PC_13);
 DigitalOut dbg1(PC_14);
@@ -30,10 +34,16 @@ void ticker10HzISR();
 void ticker20HzISR();
 void tickerTrottleISR();
 void frequencyCounterISR();
+void setHornISR();
+void clearHornISR();
+void setHeadlightISR();
+void clearHeadlightISR();
 /* Interrupt handlers */
 void canHandler();
 void throttleDebounceHandler();
+void hornDebounceHandler();
 /* General functions*/
+void setupInterrupts();
 void filterMessage(CANMsg msg);
 void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t gry, int16_t grz, int16_t dt);
 
@@ -41,7 +51,7 @@ void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t g
 Timer t;
 bool buffer_full = false;
 uint32_t counter = 0;
-Timer trottle_tim;
+Timer throttle_tim;
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
@@ -50,6 +60,7 @@ Ticker ticker10Hz;
 Ticker ticker20Hz;
 Ticker tickerTrottle;
 Timeout throttle_debounce;
+Timeout horn_limiter;                       // stop sound of horn after a determined period
 CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
 /* Global variables */
 bool switch_clicked = false;
@@ -66,17 +77,13 @@ int main()
     CANMsg txMsg;
     /* Initialization */
     t.start();
+    horn = 0;                               // horn OFF
+    headlight = 0;                          // headlight OFF
+    led = 1;                                // led OFF
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
-    can.attach(&canISR, CAN::RxIrq);
-    choke_switch.rise(&servoSwitchISR);     // trigger throttle interrupt in both edges
-    run_switch.rise(&servoSwitchISR);       // trigger throttle interrupt in both edges
-    choke_switch.fall(&servoSwitchISR);     // trigger throttle interrupt in both edges
-    run_switch.fall(&servoSwitchISR);       // trigger throttle interrupt in both edges
-    ticker2Hz.attach(&ticker2HzISR, 0.1);
-    ticker10Hz.attach(&ticker10HzISR, 0.1);
-    ticker20Hz.attach(&ticker20HzISR, 0.05);
     uint16_t lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26); 
-    
+    setupInterrupts();          
+
     while (true) {
         if (state_buffer.full())
         {
@@ -186,7 +193,7 @@ void canISR()
 void servoSwitchISR()
 {
     counter++;
-    trottle_tim.start();
+    throttle_tim.start();
     choke_switch.rise(NULL);     //  throttle interrupt in both edges dettach
     run_switch.rise(NULL);       //  throttle interrupt in both edges dettach
     choke_switch.fall(NULL);     //  throttle interrupt in both edges dettach
@@ -217,6 +224,27 @@ void frequencyCounterISR()
     last_count = t.read_us();        
 }
 
+void setHornISR()
+{
+    horn = 1;
+    horn_limiter.attach(&clearHornISR, HORN_PERIOD);        // shut off horn after HORN_PERIOD seconds
+}
+
+void clearHornISR()
+{
+    horn = 0;
+}
+
+void setHeadlightISR()
+{
+    headlight = 1;
+}
+
+void clearHeadlightISR()
+{
+    headlight = 0;
+}
+
 /* Interrupt handlers */
 void canHandler()
 {
@@ -237,6 +265,22 @@ void throttleDebounceHandler()
 }
 
 /* General functions */
+void setupInterrupts()
+{
+    can.attach(&canISR, CAN::RxIrq);
+    choke_switch.rise(&servoSwitchISR);     // trigger throttle interrupt in both edges
+    choke_switch.fall(&servoSwitchISR);     // trigger throttle interrupt in both edges
+    run_switch.rise(&servoSwitchISR);       // trigger throttle interrupt in both edges
+    run_switch.fall(&servoSwitchISR);       // trigger throttle interrupt in both edges
+    horn_button.rise(&clearHornISR);
+    horn_button.fall(&setHornISR);
+    headlight_switch.rise(&clearHeadlightISR);
+    headlight_switch.fall(&setHeadlightISR);
+    ticker2Hz.attach(&ticker2HzISR, 0.1);
+    ticker10Hz.attach(&ticker10HzISR, 0.1);
+    ticker20Hz.attach(&ticker20HzISR, 0.05);
+}
+
 void filterMessage(CANMsg msg)
 {
 //    serial.printf("id: %d\r\n", msg.id);
