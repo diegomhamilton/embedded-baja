@@ -130,7 +130,7 @@ int main()
                     speed_hz = 0;
                 }
                 speed_display = ((float)(PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLE_NUMBER);    // make conversion hz to km/h
-                speed_radio = ((float)((speed_display)/60)*65535);
+                speed_radio = ((float)((speed_display)/60.0)*65535);
                 pulse_counter = 0;                          
                 current_period = 0;                         //|-> reset pulses related variables
                 last_count = t.read_us();        
