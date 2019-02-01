@@ -53,7 +53,7 @@ uint8_t switch_state = 0x00;
 state_t current_state = IDLE_ST;
 uint8_t pulse_counter = 0;
 uint64_t current_period = 0, last_count = 0;
-float V_termistor = 0;
+float rpm_hz, V_termistor = 0;
 packet_t data;                                // Create package for radio comunication
 packet_t radio_packet;
 
@@ -113,16 +113,17 @@ int main()
                 freq_sensor.fall(NULL);         // disable interrupt
                 if (current_period != 0)
                 {
-                    data.data_10hz[packet_counter[N_RPM]].rpm = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
+                    rpm_hz = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
                 }
                 else
                 {
-                    data.data_10hz[packet_counter[N_RPM]].rpm = 0;
+                    rpm_hz = 0;
                 }
-                serial.printf("rpm = %d\r\n",data.data_10hz[packet_counter[N_RPM]].rpm);
+                data.data_10hz[packet_counter[N_RPM]].rpm = ((float)((60*rpm_hz)*65535)/5000);
+//                serial.printf("rpm = %d\r\n",data.data_10hz[packet_counter[N_RPM]].rpm);
                 /* Send rpm data */
                 txMsg.clear(RPM_ID);
-                txMsg << data.data_10hz[packet_counter[N_RPM]].rpm;
+                txMsg << rpm_hz;
                 can.write(txMsg);
                 /* prepare to re-init rpm counter */
                 pulse_counter = 0;                          
@@ -277,7 +278,7 @@ void filterMessage(CANMsg msg)
     }
     else if (msg.id == SPEED_ID)
     {
-        msg >> data.data_10hz[packet_counter[N_SPEED]].speed;
+        msg >> data.data_10hz[packet_counter[N_RPM]].speed;
 //      serial.printf("\r\nspeed = %d\r\n",data.data_10hz[packet_counter[N_SPEED]].speed);
 //      d10hz_buffer.push(data.data_10hz);
     }
