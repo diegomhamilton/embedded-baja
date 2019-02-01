@@ -76,6 +76,7 @@ int main()
     ticker10Hz.attach(&ticker10HzISR, 0.1);
     ticker20Hz.attach(&ticker20HzISR, 0.05);
     uint16_t lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26); 
+    
     while (true) {
         if (state_buffer.full())
         {
@@ -101,8 +102,16 @@ int main()
                 break;
             case IMU_ST:
                 dbg1 = !dbg1;
-                LSM6DS3.readAccel();                        // read accelerometer data into LSM6DS3.aN_raw
-                LSM6DS3.readGyro();                         //  "   gyroscope data into LSM6DS3.gN_raw
+                if (lsm_addr)
+                {
+                    LSM6DS3.readAccel();                        // read accelerometer data into LSM6DS3.aN_raw
+                    LSM6DS3.readGyro();                         //  "   gyroscope data into LSM6DS3.gN_raw
+                }
+                else
+                {
+                    lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26); 
+                }
+                
                 dt = t.read_ms() - last_acq;
                 last_acq = t.read_ms();
 //                serial.printf("accz = %d\r\n", LSM6DS3.gz_raw);
