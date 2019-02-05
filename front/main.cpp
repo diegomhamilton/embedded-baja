@@ -226,23 +226,23 @@ void frequencyCounterISR()
 
 void setHornISR()
 {
-    horn = 1;
+    horn = 0;
     horn_limiter.attach(&clearHornISR, HORN_PERIOD);        // shut off horn after HORN_PERIOD seconds
 }
 
 void clearHornISR()
 {
-    horn = 0;
+    horn = 1;
 }
 
 void setHeadlightISR()
 {
-    headlight = 1;
+    headlight = 0;
 }
 
 void clearHeadlightISR()
 {
-    headlight = 0;
+    headlight = 1;
 }
 
 /* Interrupt handlers */
