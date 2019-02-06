@@ -2,13 +2,14 @@
 #define FRONTDEFS_H
 
 /* Conversion definitions */
-#define WHEEL_DIAMETER      0.5842   // in m
+#define WHEEL_DIAMETER      0.5842      // m
 #define PI                  3.1416
 #define RAD_TO_DEGREE       180.0/PI
 #define TO_G                2.0/32768.0
 #define TO_DPS              245.0/32768.0
 #define WHEEL_HOLE_NUMBER   10
 #define HORN_PERIOD         2
+#define DEBOUNCE_TIME       100         // ms
 
 typedef enum
 {
