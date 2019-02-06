@@ -17,6 +17,7 @@
 #define BOXRADIO_ID         69
 #define NODE_ID             55
 #define FREQUENCY_915MHZ    91
+#define FAILSAFE_PERIOD     1
 
 uint8_t packet_counter[4];
 
