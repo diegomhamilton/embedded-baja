@@ -88,6 +88,7 @@ int main()
         {
             buffer_full = true;
             led = 0;
+            state_buffer.pop(current_state);
         }
         else
         {
@@ -272,7 +273,7 @@ void setupInterrupts()
     horn_button.fall(&hornISR);
     headlight_switch.rise(&headlightISR);
     headlight_switch.fall(&headlightISR);
-    ticker2Hz.attach(&ticker2HzISR, 0.1);
+    ticker2Hz.attach(&ticker2HzISR, 0.5);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
     ticker20Hz.attach(&ticker20HzISR, 0.05);
 }
