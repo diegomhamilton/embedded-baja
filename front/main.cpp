@@ -34,14 +34,13 @@ void ticker10HzISR();
 void ticker20HzISR();
 void tickerTrottleISR();
 void frequencyCounterISR();
-void setHornISR();
-void clearHornISR();
-void setHeadlightISR();
-void clearHeadlightISR();
+void hornISR();
+void headlightISR();
 /* Interrupt handlers */
 void canHandler();
 void throttleDebounceHandler();
 void hornDebounceHandler();
+void headlightDebounceHandler();
 /* General functions*/
 void setupInterrupts();
 void filterMessage(CANMsg msg);
@@ -50,8 +49,6 @@ void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t g
 /* Debug variables */
 Timer t;
 bool buffer_full = false;
-uint32_t counter = 0;
-Timer throttle_tim;
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
@@ -59,8 +56,10 @@ Ticker ticker2Hz;
 Ticker ticker10Hz;
 Ticker ticker20Hz;
 Ticker tickerTrottle;
-Timeout throttle_debounce;
-Timeout horn_limiter;                       // stop sound of horn after a determined period
+Timeout debounce_throttle;
+Timeout debounce_horn;
+Timeout debounce_headlight;
+// Timeout horn_limiter;                       // stop sound of horn after a determined period
 CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
 /* Global variables */
 bool switch_clicked = false;
@@ -192,14 +191,12 @@ void canISR()
 
 void servoSwitchISR()
 {
-    counter++;
-    throttle_tim.start();
     choke_switch.rise(NULL);     //  throttle interrupt in both edges dettach
     run_switch.rise(NULL);       //  throttle interrupt in both edges dettach
     choke_switch.fall(NULL);     //  throttle interrupt in both edges dettach
     run_switch.fall(NULL);       //  throttle interrupt in both edges dettach
     switch_clicked = true;
-    throttle_debounce.attach(&throttleDebounceHandler, 0.1);
+    debounce_throttle.attach(&throttleDebounceHandler, 0.1);
 }
 
 void ticker2HzISR()
@@ -224,25 +221,14 @@ void frequencyCounterISR()
     last_count = t.read_us();        
 }
 
-void setHornISR()
+void hornISR()
 {
-    horn = 0;
-    horn_limiter.attach(&clearHornISR, HORN_PERIOD);        // shut off horn after HORN_PERIOD seconds
+    debounce_horn.attach(&hornDebounceHandler, DEBOUNCE_TIME);
 }
 
-void clearHornISR()
+void headlightISR()
 {
-    horn = 1;
-}
-
-void setHeadlightISR()
-{
-    headlight = 0;
-}
-
-void clearHeadlightISR()
-{
-    headlight = 1;
+    debounce_headlight.attach(&headlightDebounceHandler, DEBOUNCE_TIME);
 }
 
 /* Interrupt handlers */
@@ -264,6 +250,16 @@ void throttleDebounceHandler()
     run_switch.fall(&servoSwitchISR);       // trigger throttle interrupt in both edges
 }
 
+void hornDebounceHandler()
+{
+    horn = horn_button.read();
+}
+
+void headlightDebounceHandler()
+{
+    headlight = headlight_switch.read();
+}
+
 /* General functions */
 void setupInterrupts()
 {
@@ -272,10 +268,10 @@ void setupInterrupts()
     choke_switch.fall(&servoSwitchISR);     // trigger throttle interrupt in both edges
     run_switch.rise(&servoSwitchISR);       // trigger throttle interrupt in both edges
     run_switch.fall(&servoSwitchISR);       // trigger throttle interrupt in both edges
-    horn_button.rise(&clearHornISR);
-    horn_button.fall(&setHornISR);
-    headlight_switch.rise(&clearHeadlightISR);
-    headlight_switch.fall(&setHeadlightISR);
+    horn_button.rise(&hornISR);
+    horn_button.fall(&hornISR);
+    headlight_switch.rise(&headlightISR);
+    headlight_switch.fall(&headlightISR);
     ticker2Hz.attach(&ticker2HzISR, 0.1);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
     ticker20Hz.attach(&ticker20HzISR, 0.05);
