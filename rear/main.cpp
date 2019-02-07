@@ -29,16 +29,16 @@ void ticker10HzISR();
 void frequencyCounterISR();
 /* Interrupt handlers */
 void canHandler();
-void throttleFailsafeHandler(bool engine_on);
 /* General functions*/
-void initRadio();
 void initPWM();
+void initRadio();
 void setupInterrupts();
 void filterMessage(CANMsg msg);
+void writeServo(uint8_t state);
 
 /* Debug variables */
 Timer t;
-Timer engine_running;
+Timer engine_running; 
 bool buffer_full = false;
 
 /* Mbed OS tools */
@@ -46,7 +46,6 @@ Thread eventThread;
 EventQueue queue(1024);
 Ticker ticker5Hz;
 Ticker ticker10Hz;
-Timeout throttle_failsafe;
 CircularBuffer <state_t, 2*BUFFER_SIZE> state_buffer;
 CircularBuffer <imu_t*, 20> imu_buffer;
 CircularBuffer <acq_10hz_t*, 10> d10hz_buffer;
@@ -55,13 +54,12 @@ CircularBuffer <packet_t, 10> radio_buffer;
 
 /* Global variables */
 bool switch_clicked = false;
+uint8_t switch_state = 0x00;
 state_t current_state = IDLE_ST;
 uint8_t pulse_counter = 0;
-uint8_t switch_state_user = 0x00, switch_state_auto = 0x00;
-uint8_t throttle_fail_counter = 0;
 uint64_t current_period = 0, last_count = 0;
 float rpm_hz, V_termistor = 0;
-packet_t data;                                  // Create package for radio comunication
+packet_t data;                                // Create package for radio comunication
 packet_t radio_packet;
 
 int main()
@@ -71,16 +69,15 @@ int main()
     /* Initialization */
     t.start();
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
-    initRadio();
     initPWM();
+    initRadio();
     setupInterrupts();
-
+    
     while (true) {
         if (state_buffer.full())
         {
             buffer_full = true;
             led = 0;
-            state_buffer.pop(current_state);
         }    
         else
         {
@@ -114,15 +111,16 @@ int main()
                 if (current_period != 0)
                 {
                     rpm_hz = 1000000*((float)pulse_counter/current_period);    //calculates frequency in Hz
+                    if (switch_state != RUN_MODE)
+                        writeServo(RUN_MODE);
                     engine_running.start();
                 }
                 else
                 {
                     rpm_hz = 0;
+                    writeServo(switch_state);
                     engine_running.stop();
                 }
-
-                throttleFailsafeHandler(rpm_hz);
                 data.data_10hz[packet_counter[N_RPM]].rpm = ((float)((60*rpm_hz)*65535)/5000);
 //                serial.printf("rpm = %d\r\n",data.data_10hz[packet_counter[N_RPM]].rpm);
                 /* Send rpm data */
@@ -146,40 +144,11 @@ int main()
                 }
                 break;
             case THROTTLE_ST:
-                if (switch_clicked && (!rpm_hz))
+                if (switch_clicked)
                 {
-                    data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x07);         // reset servo-related flags
-                    switch (switch_state_user)
-                    {
-                        case 0x00:
-                            dbg3 = !dbg3;
-                            servo.pulsewidth_us(SERVO_MID);
-                            data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x03); // reset run and choke flags
-                            break;
-                        case 0x01:
-                            dbg3 = !dbg3;
-                            servo.pulsewidth_us(SERVO_RUN);
-                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x01;    // set run flag
-                            break;
-                        case 0x02:
-                            dbg3 = !dbg3;
-                            servo.pulsewidth_us(SERVO_CHOKE);
-                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x02;    // set choke flag
-                            break;
-                        default:
-                            serial.printf("Choke/run error\r\n");
-                            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x04;    // set servo error flag
-                            break;
-                    }
-
-                    // throttle_failsafe.attach(&throttleFailsafeHandler, FAILSAFE_PERIOD);
-                    switch_state_auto = switch_state_user;
+                    writeServo(switch_state);
                     switch_clicked = false;
                 }
-                else
-                {
-                    /* Implement user command for throttle while engine is running */
-                }                
                 
                 if (packet_counter[N_FLAG] <1)
                 {
@@ -191,8 +160,7 @@ int main()
                 }
                 break;
             case RADIO_ST:
-                dbg4 = !dbg4;void setupInterrupts();
-
+                dbg4 = !dbg4;
                 if((!imu_buffer.empty()) && (!d10hz_buffer.empty()) && (!temp_buffer.empty()))
                 {
                     
@@ -209,7 +177,7 @@ int main()
                 break;
             case DEBUG_ST:
 //                serial.printf("radio state pushed");
-//                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state_user);
+//                serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
 //                serial.printf("speed=%d\r\n", data.data_10hz[packet_counter[N_SPEED]].speed);
 //                serial.printf("rpm=%d\r\n", data.data_10hz[packet_counter[N_RPM]].rpm);
 //                serial.printf("imu acc x =%d\r\n", data.imu[packet_counter[N_IMU]].acc_x);
@@ -252,45 +220,27 @@ void frequencyCounterISR()
 /* Interrupt handlers */
 void canHandler()
 {
-    CANMsg rxMsg;can.attach(&canISR, CAN::RxIrq);
-    ticker5Hz.attach(&ticker5HzISR, 0.2);
-    ticker10Hz.attach(&ticker10HzISR, 0.1);
-    freq_sensor.fall(&frequencyCounterISR);
-    
+    CANMsg rxMsg;
 
     can.read(rxMsg);
     filterMessage(rxMsg);
     CAN_IER |= CAN_IER_FMPIE0;                  // enable RX interrupt
 }
 
-void throttleFailsafeHandler(bool engine_on)
-{
-    if (engine_on)
-    {
-        servo.pulsewidth_us(SERVO_RUN);
-        switch_state_auto = 0x01;
-    }
-    else if (switch_state_user != switch_state_auto)
-    {
-        state_buffer.push(THROTTLE_ST);
-        switch_clicked = true;
-    }
-}
-
 /* General functions */
-void initRadio()
-{
-    radio.initialize(FREQUENCY_915MHZ, NODE_ID, NETWORK_ID);
-    radio.encrypt(0);
-    radio.setPowerLevel(20);
-}
-
 void initPWM()
 {
     servo.period_ms(20);                        // set signal frequency to 50Hz
     servo.write(0);                             // disables servo
     signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
     signal.write(0.5f);                         // dutycycle 50%
+}
+
+void initRadio()
+{
+    radio.initialize(FREQUENCY_915MHZ, NODE_ID, NETWORK_ID);
+    radio.encrypt(0);
+    radio.setPowerLevel(20);    
 }
 
 void setupInterrupts()
@@ -307,8 +257,7 @@ void filterMessage(CANMsg msg)
     {
         switch_clicked = true;
         state_buffer.push(THROTTLE_ST);
-        msg >> switch_state_user;
-        switch_state_auto = switch_state_user;
+        msg >> switch_state;
     }
     else if (msg.id == IMU_ACC_ID)
     {
@@ -334,5 +283,33 @@ void filterMessage(CANMsg msg)
         msg >> data.data_10hz[packet_counter[N_RPM]].speed;
 //      serial.printf("\r\nspeed = %d\r\n",data.data_10hz[packet_counter[N_SPEED]].speed);
 //      d10hz_buffer.push(data.data_10hz);
+    }
+}
+
+void writeServo(uint8_t state)
+{
+    data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x07);         // reset servo-related flags
+
+    switch (state)
+    {
+        case MID_MODE:
+            dbg3 = !dbg3;
+            servo.pulsewidth_us(SERVO_MID);
+            data.data_10hz[packet_counter[N_FLAG]].flags &= ~(0x03); // reset run and choke flags
+            break;
+        case RUN_MODE:
+            dbg3 = !dbg3;
+            servo.pulsewidth_us(SERVO_RUN);
+            data.data_10hz[packet_counter[N_FLAG]].flags |= RUN_MODE;    // set run flag
+            break;
+        case CHOKE_MODE:
+            dbg3 = !dbg3;
+            servo.pulsewidth_us(SERVO_CHOKE);
+            data.data_10hz[packet_counter[N_FLAG]].flags |= CHOKE_MODE;    // set choke flag
+            break;
+        default:
+//            serial.printf("Choke/run error\r\n");
+            data.data_10hz[packet_counter[N_FLAG]].flags |= 0x04;    // set servo error flag
+            break;
     }
 }
