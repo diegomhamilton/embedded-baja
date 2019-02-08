@@ -88,8 +88,6 @@ int main()
     serial.printf("%d\r\n", (t1 - t0));
     setupInterrupts();          
 
-    serial.printf("beginning...\r\n");
-    
     while (true) {
         if (state_buffer.full())
         {
@@ -124,7 +122,15 @@ int main()
                         nack = LSM6DS3.readGyro();                         //  "   gyroscope data into LSM6DS3.gN_raw
                     
                     if (nack)
+                    {
                         lsm_addr = 0;
+                        LSM6DS3.ax_raw = 0;
+                        LSM6DS3.ay_raw = 0;
+                        LSM6DS3.az_raw = 0;
+                        LSM6DS3.gx_raw = 0;
+                        LSM6DS3.gy_raw = 0;
+                        LSM6DS3.gz_raw = 0;
+                    }
                 }
                 else if (imu_failed == IMU_TRIES)
                 {
@@ -143,7 +149,7 @@ int main()
                 calcAngles(LSM6DS3.ax_raw, LSM6DS3.ay_raw, LSM6DS3.ay_raw, LSM6DS3.gx_raw, LSM6DS3.gy_raw, LSM6DS3.gz_raw, dt);
                  /* Send accelerometer data */
                 txMsg.clear(IMU_ACC_ID);
-                txMsg << LSM6DS3.ax_raw << LSM6DS3.ay_raw << LSM6DS3.ay_raw;
+                txMsg << LSM6DS3.ax_raw << LSM6DS3.ay_raw << LSM6DS3.az_raw;
                 if(can.write(txMsg))
                 {
                     /* Send gyroscope data only if accelerometer data succeeds */
