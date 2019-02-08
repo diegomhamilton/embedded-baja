@@ -78,8 +78,8 @@ int main()
     CANMsg txMsg;
     /* Initialization */
     t.start();
-    horn = 0;                               // horn OFF
-    headlight = 0;                          // headlight OFF
+    horn = horn_button.read();                               // horn OFF
+    headlight = headlight_switch.read();                          // headlight OFF
     led = 1;                                // led OFF
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
     t0 = t.read_us();
