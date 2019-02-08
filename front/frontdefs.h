@@ -9,7 +9,8 @@
 #define TO_DPS              245.0/32768.0
 #define WHEEL_HOLE_NUMBER   10
 #define HORN_PERIOD         2
-#define DEBOUNCE_TIME       100         // ms
+#define DEBOUNCE_TIME       0.1         // ms
+#define IMU_TRIES           10
 
 typedef enum
 {
