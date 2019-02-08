@@ -1,9 +1,13 @@
 #include "LSM6DS3.h"
 
-LSM6DS3::LSM6DS3(PinName sda, PinName scl, uint8_t xgAddr) : i2c(sda, scl)
+LSM6DS3::LSM6DS3(PinName sda, PinName scl, uint8_t xgAddr)
 {
-    // xgAddress will store the 7-bit I2C address, if using I2C.
-    i2c.frequency(400000);
+    _sda = sda;
+    _scl = scl;
+    
+    i2c = new I2C(_sda, _scl);
+    // xgAddress will store the 7-bit I2C address, if using i2c.
+    i2c->frequency(400000);
     xgAddress = xgAddr;
 }
 
@@ -20,6 +24,11 @@ uint16_t LSM6DS3::begin(gyro_scale gScl, accel_scale aScl,
     calcgRes(); // Calculate DPS / ADC tick, stored in gRes variable
     calcaRes(); // Calculate g / ADC tick, stored in aRes variable
     
+    delete i2c;
+    
+    i2c = new I2C(_sda, _scl);
+    // xgAddress will store the 7-bit I2C address, if using i2c.
+    i2c->frequency(400000);
     
     // To verify communication, we can read from the WHO_AM_I register of
     // each device. Store those in a variable so we can return them.
@@ -30,29 +39,29 @@ uint16_t LSM6DS3::begin(gyro_scale gScl, accel_scale aScl,
     };
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, cmd, 1, true);
+    bool nack = i2c->write(xgAddress, cmd, 1, true);
     // Read in all the 8 bits of data
-    i2c.read(xgAddress, cmd+1, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, cmd+1, 1);
     uint8_t xgTest = cmd[1];                    // Read the accel/gyro WHO_AM_I
         
     // Gyro initialization stuff:
-    initGyro(); // This will "turn on" the gyro. Setting up interrupts, etc.
-    setGyroODR(gODR); // Set the gyro output data rate and bandwidth.
-    setGyroScale(gScale); // Set the gyro range
+    nack = nack ? 1 : initGyro(); // This will "turn on" the gyro. Setting up interrupts, etc.
+    nack = nack ? 1 : setGyroODR(gODR); // Set the gyro output data rate and bandwidth.
+    nack = nack ? 1 : setGyroScale(gScale); // Set the gyro range
     
     // Accelerometer initialization stuff:
-    initAccel(); // "Turn on" all axes of the accel. Set up interrupts, etc.
-    setAccelODR(aODR); // Set the accel data rate.
-    setAccelScale(aScale); // Set the accel range.
+    nack = nack ? 1 : initAccel(); // "Turn on" all axes of the accel. Set up interrupts, etc.
+    nack = nack ? 1 : setAccelODR(aODR); // Set the accel data rate.
+    nack = nack ? 1 : setAccelScale(aScale); // Set the accel range.
     
     // Interrupt initialization stuff;
-    initIntr();
+    nack = nack ? 1 : initIntr();
     
     // Once everything is initialized, return the WHO_AM_I registers we read:
     return xgTest;
 }
 
-void LSM6DS3::initGyro()
+bool LSM6DS3::initGyro()
 {
     char cmd[4] = {
         CTRL2_G,
@@ -62,10 +71,12 @@ void LSM6DS3::initGyro()
     };
 
     // Write the data to the gyro control registers
-    i2c.write(xgAddress, cmd, 4);
+    bool nack = i2c->write(xgAddress, cmd, 4);
+    
+    return nack;
 }
 
-void LSM6DS3::initAccel()
+bool LSM6DS3::initAccel()
 {
     char cmd[4] = {
         CTRL1_XL,
@@ -75,31 +86,35 @@ void LSM6DS3::initAccel()
     };
 
     // Write the data to the accel control registers
-    i2c.write(xgAddress, cmd, 4);
+    bool nack = i2c->write(xgAddress, cmd, 4);
+    
+    return nack;
 }
 
-void LSM6DS3::initIntr()
+bool LSM6DS3::initIntr()
 {
     char cmd[2];
     
     cmd[0] = TAP_CFG;
     cmd[1] = 0x0E;
-    i2c.write(xgAddress, cmd, 2);
+    bool nack = i2c->write(xgAddress, cmd, 2);
     cmd[0] = TAP_THS_6D;
     cmd[1] = 0x03;
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
     cmd[0] = INT_DUR2;
     cmd[1] = 0x7F;
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
     cmd[0] = WAKE_UP_THS;
     cmd[1] = 0x80;
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
     cmd[0] = MD1_CFG;
     cmd[1] = 0x48;
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
+    
+    return nack;
 }
 
-void LSM6DS3::readAccel()
+bool LSM6DS3::readAccel()
 {
     // The data we are going to read from the accel
     char data[6];
@@ -113,20 +128,20 @@ void LSM6DS3::readAccel()
     char subAddressZH = OUTZ_H_XL;
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, &subAddressXL, 1, true);
+    bool nack = i2c->write(xgAddress, &subAddressXL, 1, true);
     // Read in register containing the axes data and alocated to the correct index
-    i2c.read(xgAddress, data, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, data, 1);
     
-    i2c.write(xgAddress, &subAddressXH, 1, true);
-    i2c.read(xgAddress, (data + 1), 1);
-    i2c.write(xgAddress, &subAddressYL, 1, true);
-    i2c.read(xgAddress, (data + 2), 1);
-    i2c.write(xgAddress, &subAddressYH, 1, true);
-    i2c.read(xgAddress, (data + 3), 1);
-    i2c.write(xgAddress, &subAddressZL, 1, true);
-    i2c.read(xgAddress, (data + 4), 1);
-    i2c.write(xgAddress, &subAddressZH, 1, true);
-    i2c.read(xgAddress, (data + 5), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressXH, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 1), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressYL, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 2), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressYH, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 3), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressZL, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 4), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressZH, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 5), 1);
 
     // Reassemble the data and convert to g
     ax_raw = data[0] | (data[1] << 8);
@@ -135,20 +150,24 @@ void LSM6DS3::readAccel()
 //    ax = ax_raw * aRes;
 //    ay = ay_raw * aRes;
 //    az = az_raw * aRes;
+
+    return nack;
 }
 
-void LSM6DS3::readIntr()
+bool LSM6DS3::readIntr()
 {
     char data[1];
     char subAddress = TAP_SRC;
 
-    i2c.write(xgAddress, &subAddress, 1, true);
-    i2c.read(xgAddress, data, 1);
+    bool nack = i2c->write(xgAddress, &subAddress, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, data, 1);
 
     intr = (float)data[0];
+    
+    return nack;
 }
 
-void LSM6DS3::readTemp()
+bool LSM6DS3::readTemp()
 {
     // The data we are going to read from the temp
     char data[2];
@@ -158,22 +177,24 @@ void LSM6DS3::readTemp()
     char subAddressH = OUT_TEMP_H;
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, &subAddressL, 1, true);
+    bool nack = i2c->write(xgAddress, &subAddressL, 1, true);
     // Read in register containing the temperature data and alocated to the correct index
-    i2c.read(xgAddress, data, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, data, 1);
     
-    i2c.write(xgAddress, &subAddressH, 1, true);
-    i2c.read(xgAddress, (data + 1), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressH, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 1), 1);
 
     // Temperature is a 12-bit signed integer   
     temperature_raw = data[0] | (data[1] << 8);
 
     temperature_c = (float)temperature_raw / 16.0 + 25.0;
     temperature_f = temperature_c * 1.8 + 32.0;
+    
+    return nack;
 }
 
 
-void LSM6DS3::readGyro()
+bool LSM6DS3::readGyro()
 {
     // The data we are going to read from the gyro
     char data[6];
@@ -187,20 +208,20 @@ void LSM6DS3::readGyro()
     char subAddressZH = OUTZ_H_G;
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, &subAddressXL, 1, true);
+    bool nack = i2c->write(xgAddress, &subAddressXL, 1, true);
     // Read in register containing the axes data and alocated to the correct index
-    i2c.read(xgAddress, data, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, data, 1);
     
-    i2c.write(xgAddress, &subAddressXH, 1, true);
-    i2c.read(xgAddress, (data + 1), 1);
-    i2c.write(xgAddress, &subAddressYL, 1, true);
-    i2c.read(xgAddress, (data + 2), 1);
-    i2c.write(xgAddress, &subAddressYH, 1, true);
-    i2c.read(xgAddress, (data + 3), 1);
-    i2c.write(xgAddress, &subAddressZL, 1, true);
-    i2c.read(xgAddress, (data + 4), 1);
-    i2c.write(xgAddress, &subAddressZH, 1, true);
-    i2c.read(xgAddress, (data + 5), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressXH, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 1), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressYL, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 2), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressYH, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 3), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressZL, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 4), 1);
+    nack = nack ? 1 : i2c->write(xgAddress, &subAddressZH, 1, true);
+    nack = nack ? 1 : i2c->read(xgAddress, (data + 5), 1);
 
     // Reassemble the data and convert to degrees/sec
     gx_raw = data[0] | (data[1] << 8);
@@ -209,9 +230,11 @@ void LSM6DS3::readGyro()
 //    gx = gx_raw * gRes;
 //    gy = gy_raw * gRes;
 //    gz = gz_raw * gRes;
+
+    return nack;
 }
 
-void LSM6DS3::setGyroScale(gyro_scale gScl)
+bool LSM6DS3::setGyroScale(gyro_scale gScl)
 {
     // The start of the addresses we want to read from
     char cmd[2] = {
@@ -220,9 +243,9 @@ void LSM6DS3::setGyroScale(gyro_scale gScl)
     };
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, cmd, 1, true);
+    bool nack = i2c->write(xgAddress, cmd, 1, true);
     // Read in all the 8 bits of data
-    i2c.read(xgAddress, cmd+1, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, cmd+1, 1);
 
     // Then mask out the gyro scale bits:
     cmd[1] &= 0xFF^(0x3 << 3);
@@ -230,16 +253,18 @@ void LSM6DS3::setGyroScale(gyro_scale gScl)
     cmd[1] |= gScl << 3;
 
     // Write the gyroscale out to the gyro
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
     
     // We've updated the sensor, but we also need to update our class variables
     // First update gScale:
     gScale = gScl;
     // Then calculate a new gRes, which relies on gScale being set correctly:
     calcgRes();
+    
+    return nack;
 }
 
-void LSM6DS3::setAccelScale(accel_scale aScl)
+bool LSM6DS3::setAccelScale(accel_scale aScl)
 {
     // The start of the addresses we want to read from
     char cmd[2] = {
@@ -248,9 +273,9 @@ void LSM6DS3::setAccelScale(accel_scale aScl)
     };
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, cmd, 1, true);
+    bool nack = i2c->write(xgAddress, cmd, 1, true);
     // Read in all the 8 bits of data
-    i2c.read(xgAddress, cmd+1, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, cmd+1, 1);
 
     // Then mask out the accel scale bits:
     cmd[1] &= 0xFF^(0x3 << 3);
@@ -258,17 +283,20 @@ void LSM6DS3::setAccelScale(accel_scale aScl)
     cmd[1] |= aScl << 3;
 
     // Write the accelscale out to the accel
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
     
     // We've updated the sensor, but we also need to update our class variables
     // First update aScale:
     aScale = aScl;
     // Then calculate a new aRes, which relies on aScale being set correctly:
     calcaRes();
+    
+    return nack;
 }
 
-void LSM6DS3::setGyroODR(gyro_odr gRate)
+bool LSM6DS3::setGyroODR(gyro_odr gRate)
 {
+    bool nack = 0;
     // The start of the addresses we want to read from
     char cmd[2] = {
         CTRL2_G,
@@ -282,7 +310,7 @@ void LSM6DS3::setGyroODR(gyro_odr gRate)
             1
         };
         
-        i2c.write(xgAddress, cmdLow, 2);
+        nack = i2c->write(xgAddress, cmdLow, 2);
     }
     else {
         char cmdLow[2] ={
@@ -290,13 +318,13 @@ void LSM6DS3::setGyroODR(gyro_odr gRate)
             0
         };
         
-        i2c.write(xgAddress, cmdLow, 2);
+        nack = i2c->write(xgAddress, cmdLow, 2);
     }
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, cmd, 1, true);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 1, true);
     // Read in all the 8 bits of data
-    i2c.read(xgAddress, cmd+1, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, cmd+1, 1);
 
     // Then mask out the gyro odr bits:
     cmd[1] &= (0x3 << 3);
@@ -304,11 +332,12 @@ void LSM6DS3::setGyroODR(gyro_odr gRate)
     cmd[1] |= gRate;
 
     // Write the gyroodr out to the gyro
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
 }
 
-void LSM6DS3::setAccelODR(accel_odr aRate)
+bool LSM6DS3::setAccelODR(accel_odr aRate)
 {
+    bool nack = 0;
     // The start of the addresses we want to read from
     char cmd[2] = {
         CTRL1_XL,
@@ -322,7 +351,7 @@ void LSM6DS3::setAccelODR(accel_odr aRate)
             1
         };
         
-        i2c.write(xgAddress, cmdLow, 2);
+        nack = i2c->write(xgAddress, cmdLow, 2);
     }
     else {
         char cmdLow[2] ={
@@ -330,13 +359,13 @@ void LSM6DS3::setAccelODR(accel_odr aRate)
             0
         };
         
-        i2c.write(xgAddress, cmdLow, 2);
+        nack = i2c->write(xgAddress, cmdLow, 2);
     }
 
     // Write the address we are going to read from and don't end the transaction
-    i2c.write(xgAddress, cmd, 1, true);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 1, true);
     // Read in all the 8 bits of data
-    i2c.read(xgAddress, cmd+1, 1);
+    nack = nack ? 1 : i2c->read(xgAddress, cmd+1, 1);
 
     // Then mask out the accel odr bits:
     cmd[1] &= 0xFF^(0x7 << 5);
@@ -344,7 +373,9 @@ void LSM6DS3::setAccelODR(accel_odr aRate)
     cmd[1] |= aRate << 5;
 
     // Write the accelodr out to the accel
-    i2c.write(xgAddress, cmd, 2);
+    nack = nack ? 1 : i2c->write(xgAddress, cmd, 2);
+    
+    return nack;
 }
 
 void LSM6DS3::calcgRes()

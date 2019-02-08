@@ -204,24 +204,24 @@ public:
     *  The readings are stored in the class' gx_raw, gy_raw, and gz_raw variables. Read
     *  those _after_ calling readGyro().
     */
-    void readGyro();
+    bool readGyro();
     
     /**  readAccel() -- Read the accelerometer output registers.
     *  This function will read all six accelerometer output registers.
     *  The readings are stored in the class' ax_raw, ay_raw, and az_raw variables. Read
     *  those _after_ calling readAccel().
     */
-    void readAccel();
+    bool readAccel();
     
     /**  readTemp() -- Read the temperature output register.
     *  This function will read two temperature output registers.
     *  The combined readings are stored in the class' temperature variables. Read
     *  those _after_ calling readTemp().
     */
-    void readTemp();
+    bool readTemp();
     
     /** Read Interrupt **/
-    void readIntr();
+    bool readIntr();
     
     /**  setGyroScale() -- Set the full-scale range of the gyroscope.
     *  This function can be called to set the scale of the gyroscope to 
@@ -230,7 +230,7 @@ public:
     *   - gScl = The desired gyroscope scale. Must be one of three possible
     *       values from the gyro_scale enum.
     */
-    void setGyroScale(gyro_scale gScl);
+    bool setGyroScale(gyro_scale gScl);
     
     /**  setAccelScale() -- Set the full-scale range of the accelerometer.
     *  This function can be called to set the scale of the accelerometer to
@@ -239,21 +239,21 @@ public:
     *   - aScl = The desired accelerometer scale. Must be one of five possible
     *       values from the accel_scale enum.
     */
-    void setAccelScale(accel_scale aScl);
+    bool setAccelScale(accel_scale aScl);
     
     /**  setGyroODR() -- Set the output data rate and bandwidth of the gyroscope
     *  Input:
     *   - gRate = The desired output rate and cutoff frequency of the gyro.
     *       Must be a value from the gyro_odr enum (check above).
     */
-    void setGyroODR(gyro_odr gRate);
+    bool setGyroODR(gyro_odr gRate);
     
     /**  setAccelODR() -- Set the output data rate of the accelerometer
     *  Input:
     *   - aRate = The desired output rate of the accel.
     *       Must be a value from the accel_odr enum (check above).
     */
-    void setAccelODR(accel_odr aRate);
+    bool setAccelODR(accel_odr aRate);
 
 
 private:    
@@ -263,8 +263,9 @@ private:
     uint8_t xgAddress;
     
     // I2C bus
-    I2C i2c;
-
+    I2C *i2c;
+    PinName _sda;
+    PinName _scl;
     /**  gScale, and aScale store the current scale range for each 
     *  sensor. Should be updated whenever that value changes.
     */
@@ -280,15 +281,15 @@ private:
     /**  initGyro() -- Sets up the gyroscope to begin reading.
     *  This function steps through all three gyroscope control registers.
     */
-    void initGyro();
+    bool initGyro();
     
     /**  initAccel() -- Sets up the accelerometer to begin reading.
     *  This function steps through all accelerometer related control registers.
     */
-    void initAccel();
+    bool initAccel();
     
     /** Setup Interrupt **/
-    void initIntr();
+    bool initIntr();
     
     /**  calcgRes() -- Calculate the resolution of the gyroscope.
     *  This function will set the value of the gRes variable. gScale must
