@@ -49,6 +49,7 @@ void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t g
 /* Debug variables */
 Timer t;
 bool buffer_full = false;
+unsigned int t0, t1;
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
@@ -66,6 +67,7 @@ bool switch_clicked = false;
 uint8_t switch_state = 0x00, pulse_counter = 0, temp_motor = 0;
 state_t current_state = IDLE_ST;
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
+uint8_t imu_failed = 0;                         // number of times before a new connection attempt with imu 
 float speed_hz = 0, angle_roll = 0, angle_pitch = 0;
 uint16_t rpm_hz = 0, speed_display = 0, speed_radio = 0, dt = 0; 
 packet_t data;
@@ -80,9 +82,14 @@ int main()
     headlight = 0;                          // headlight OFF
     led = 1;                                // led OFF
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
+    t0 = t.read_us();
     uint16_t lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26); 
+    t1 = t.read_us();
+    serial.printf("%d\r\n", (t1 - t0));
     setupInterrupts();          
 
+    serial.printf("beginning...\r\n");
+    
     while (true) {
         if (state_buffer.full())
         {
@@ -99,7 +106,7 @@ int main()
             else
                 current_state = IDLE_ST;
         }
-
+        
         switch (current_state)
         {
             case IDLE_ST:
@@ -108,18 +115,29 @@ int main()
             case SLOWACQ_ST:
                 break;
             case IMU_ST:
+                t0 = t.read_us();
                 dbg1 = !dbg1;
                 if (lsm_addr)
                 {
-                    LSM6DS3.readAccel();                        // read accelerometer data into LSM6DS3.aN_raw
-                    LSM6DS3.readGyro();                         //  "   gyroscope data into LSM6DS3.gN_raw
+                    bool nack = LSM6DS3.readAccel();                        // read accelerometer data into LSM6DS3.aN_raw
+                    if (!nack)
+                        nack = LSM6DS3.readGyro();                         //  "   gyroscope data into LSM6DS3.gN_raw
+                    
+                    if (nack)
+                        lsm_addr = 0;
+                }
+                else if (imu_failed == IMU_TRIES)
+                {
+                    lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26);                                    
+                    t1 = t.read_us();
+                    imu_failed = 0;
+                    serial.printf("%d\r\n", (t1 - t0));
                 }
                 else
                 {
-                    lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26); 
+                    imu_failed++;
                 }
                 
-                dt = t.read_ms() - last_acq;
                 last_acq = t.read_ms();
 //                serial.printf("accz = %d\r\n", LSM6DS3.gz_raw);
                 calcAngles(LSM6DS3.ax_raw, LSM6DS3.ay_raw, LSM6DS3.ay_raw, LSM6DS3.gx_raw, LSM6DS3.gy_raw, LSM6DS3.gz_raw, dt);
@@ -172,10 +190,15 @@ int main()
                 }
                 break;
             case DISPLAY_ST:
+                serial.printf("c=%d;h=%d;hl=%d", switch_state, horn.read(), headlight.read());
                 break;
             case DEBUG_ST:
-                //serial.printf("bf=%d, cr=%d\r\n", buffer_full, switch_state);
-                //serial.printf("roll=%f, pitch=%f\r\n", angle_roll, angle_pitch);
+                serial.printf("imu acc x =%d\r\n", LSM6DS3.ax_raw);
+                serial.printf("imu acc y =%d\r\n", LSM6DS3.ay_raw);
+                serial.printf("imu acc z =%d\r\n", LSM6DS3.az_raw);
+                serial.printf("imu dps x =%d\r\n", LSM6DS3.gx_raw);
+                serial.printf("imu dps y =%d\r\n", LSM6DS3.gy_raw);
+                serial.printf("imu dps z =%d\r\n", LSM6DS3.gz_raw);
                 break;
             default:
                 break;
