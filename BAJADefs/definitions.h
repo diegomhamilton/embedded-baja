@@ -38,7 +38,7 @@ typedef struct
 {
     uint16_t rpm;
     uint16_t speed;
-    uint8_t flags;      // MSB - BOX | BUFFER FULL | NC | NC | NC | SERVO_ERROR | CHK | RUN - LSB
+    uint8_t flags;      // MSB - BOX | BUFFER FULL | NC | NC | FUEL_LEVEL | SERVO_ERROR | CHK | RUN - LSB
 } acq_10hz_t;
     
 typedef struct
