@@ -7,7 +7,7 @@ LSM6DS3::LSM6DS3(PinName sda, PinName scl, uint8_t xgAddr)
     
     i2c = new I2C(_sda, _scl);
     // xgAddress will store the 7-bit I2C address, if using i2c.
-    i2c->frequency(400000);
+    i2c->frequency(100000);
     xgAddress = xgAddr;
 }
 
@@ -28,7 +28,7 @@ uint16_t LSM6DS3::begin(gyro_scale gScl, accel_scale aScl,
     
     i2c = new I2C(_sda, _scl);
     // xgAddress will store the 7-bit I2C address, if using i2c.
-    i2c->frequency(400000);
+    i2c->frequency(100000);
     
     // To verify communication, we can read from the WHO_AM_I register of
     // each device. Store those in a variable so we can return them.
