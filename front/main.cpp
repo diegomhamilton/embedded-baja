@@ -45,6 +45,8 @@ void headlightDebounceHandler();
 void setupInterrupts();
 void filterMessage(CANMsg msg);
 void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t gry, int16_t grz, int16_t dt);
+void displayData(uint16_t vel, uint16_t Hz, uint16_t temp, bool comb, \
+                    bool b, bool tl, bool fl, int16_t gp, int16_t gr, bool box);
 
 /* Debug variables */
 Timer t;
@@ -64,7 +66,7 @@ Timeout debounce_headlight;
 CircularBuffer <state_t, BUFFER_SIZE> state_buffer;
 /* Global variables */
 bool switch_clicked = false;
-uint8_t switch_state = 0x00, pulse_counter = 0, temp_motor = 0;
+uint8_t switch_state = 0x00, flags = 0x00, pulse_counter = 0, temp_motor = 0;
 state_t current_state = IDLE_ST;
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
 uint8_t imu_failed = 0;                         // number of times before a new connection attempt with imu 
@@ -85,7 +87,7 @@ int main()
     t0 = t.read_us();
     uint16_t lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26); 
     t1 = t.read_us();
-    serial.printf("%d\r\n", (t1 - t0));
+//    serial.printf("%d\r\n", (t1 - t0));
     setupInterrupts();          
 
     while (true) {
@@ -137,7 +139,7 @@ int main()
                     lsm_addr = LSM6DS3.begin(LSM6DS3.G_SCALE_245DPS, LSM6DS3.A_SCALE_2G, LSM6DS3.G_ODR_26_BW_2, LSM6DS3.A_ODR_26);                                    
                     t1 = t.read_us();
                     imu_failed = 0;
-                    serial.printf("%d\r\n", (t1 - t0));
+//                    serial.printf("%d\r\n", (t1 - t0));
                 }
                 else
                 {
@@ -196,7 +198,9 @@ int main()
                 }
                 break;
             case DISPLAY_ST:
-                serial.printf("c=%d;h=%d;hl=%d", switch_state, horn.read(), headlight.read());
+//                serial.printf("rpm_hz=%d\r\n", rpm_hz);
+                displayData(speed_display, rpm_hz, temp_motor, (flags & 0x08), false, true, false, angle_pitch, angle_roll, false);
+//                state_buffer.push(DEBUG_ST);
                 break;
             case DEBUG_ST:
                 serial.printf("imu acc x =%d\r\n", LSM6DS3.ax_raw);
@@ -321,11 +325,9 @@ void filterMessage(CANMsg msg)
         msg >> temp_motor;
     }
     
-    else if (msg.id == THROTTLE_ID)
+    else if (msg.id == FLAGS_ID)
     {
-        switch_clicked = true;
-        state_buffer.push(THROTTLE_ST);
-        msg >> switch_state;
+        msg >> flags;
     }
 }
 
@@ -372,4 +374,101 @@ void calcAngles(int16_t accx, int16_t accy, int16_t accz, int16_t grx, int16_t g
 
     angle_roll = kalAngleX;
     angle_pitch = kalAngleY;
+}
+
+void displayData(uint16_t vel, uint16_t Hz, uint16_t temp, bool comb, \
+                    bool b, bool tl, bool fl, int16_t gp, int16_t gr, bool box)
+{
+    static uint16_t vel2 = -1, Hz2 = -1, temp2 = -1;
+    static int16_t gr2 = -1, gp2 = -1;
+    static bool box2 = -1;
+    static bool comb2 = -1, b2 = -1, tl2 = -1, fl2 = -1;
+
+    char str[180];
+    int aux=0;
+    strcpy(str,"");
+    
+    if(box!=box2)
+        sprintf(str + strlen(str), "page1.box.val=%d%c%c%c",box,0xff,0xff,0xff);
+    if(vel!=vel2)
+        sprintf(str + strlen(str), "page1.v.val=%d%c%c%c",vel,0xff,0xff,0xff);
+    if(Hz!=Hz2)
+    {
+        int r = (Hz*6000)/(5000.0);
+        sprintf(str + strlen(str),"page1.r.val=%d%c%c%c",r,0xff,0xff,0xff);
+    }
+    if(comb!=comb2)
+    {
+        if (!comb)
+            sprintf(str + strlen(str),"page1.c.val=%d%c%c%c",25,0xff,0xff,0xff);
+        else
+            sprintf(str + strlen(str),"page1.c.val=%d%c%c%c",100,0xff,0xff,0xff);
+    }
+    if(temp!=temp2)
+    {
+        int tp = (100*temp)/120;
+        sprintf(str + strlen(str),"page1.tp.val=%d%c%c%c",tp,0xff,0xff,0xff);
+    }        
+    if(b!=b2)
+        sprintf(str + strlen(str),"page1.b.val=%d%c%c%c",b,0xff,0xff,0xff);
+    if(tl!=tl2)
+        sprintf(str + strlen(str),"page1.tl.val=%d%c%c%c",tl,0xff,0xff,0xff);
+    if(fl!=fl2)
+        sprintf(str + strlen(str),"page1.fl.val=%d%c%c%c",fl,0xff,0xff,0xff);
+    if(gp!=gp2)
+    {
+        int gpn = 7;
+        if(gp<=-35){gpn=14;}
+        else if(gp>=-30&&gp<-25){gpn=13;}
+        else if(gp>=-25&&gp<-20){gpn=12;}
+        else if(gp>=-20&&gp<-15){gpn=11;}
+        else if(gp>=-15&&gp<-10){gpn=10;}
+        else if(gp>=-10&&gp<-5){gpn=9;}
+        else if(gp>=-5&&gp<0){gpn=8;}
+        else if(gp==0){gpn=7;}
+        else if(gp>0&&gp<=5){gpn=6;}
+        else if(gp>5&&gp<=10){gpn=5;}
+        else if(gp>10&&gp<=15){gpn=4;}
+        else if(gp>15&&gp<=20){gpn=3;}
+        else if(gp>20&&gp<=25){gpn=2;}
+        else if(gp>25&&gp<=30){gpn=1;}
+        else if(gp>=35){gpn=0;}
+        sprintf(str + strlen(str),"page3.gp.val=%d%c%c%c",gpn,0xff,0xff,0xff);
+    }
+    if(gr!=gr2)
+    {
+        int grn = 7;
+        if(gr<=-35){grn=0;}
+        else if(gr>=-30&&gr<-25){grn=1;}
+        else if(gr>=-25&&gr<-20){grn=2;}
+        else if(gr>=-20&&gr<-15){grn=3;}
+        else if(gr>=-15&&gr<-10){grn=4;}
+        else if(gr>=-10&&gr<-5){grn=5;}
+        else if(gr>=-5&&gr<0){grn=6;}
+        else if(gr==0){grn=7;}
+        else if(gr>0&&gr<=5){grn=8;}
+        else if(gr>5&&gr<=10){grn=9;}
+        else if(gr>10&&gr<=15){grn=10;}
+        else if(gr>15&&gr<=20){grn=11;}
+        else if(gr>20&&gr<=25){grn=12;}
+        else if(gr>25&&gr<=30){grn=13;}
+        else if(gr>=35){grn=14;}
+        sprintf(str + strlen(str),"page3.gr.val=%d%c%c%c",grn,0xff,0xff,0xff);
+    }
+    
+    while(str[aux]!='\0')
+    {
+        serial.putc(str[aux]);
+        aux++;
+    }
+    box2 = box;
+    vel2 = vel;
+    Hz2 = Hz;
+    temp2 = temp;
+    gr2=gr;
+    gp2=gp;
+    comb2 = comb;
+    b2=b;
+    tl2=tl;
+    fl2=fl;
 }
