@@ -20,13 +20,15 @@
 #define BOXRADIO_ID         69
 #define NODE_ID             55
 #define FREQUENCY_915MHZ    91
+#define NORMAL_THRESHOLD    68
 
 uint8_t packet_counter[4];
 
 typedef enum
 {
     IDLE_ST,        // wait
-    SLOWACQ_ST,     // acquire temperatures and fuel data
+    TEMP_ST,        // measure temperatures
+    FUEL_ST,        // proccess fuel data sampling
     RPM_ST,         // calculate speed
     THROTTLE_ST,    // write throttle position (PWM)
     RADIO_ST,       // send data for box via radio (SPI)

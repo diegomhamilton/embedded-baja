@@ -12,7 +12,8 @@ Serial serial(PA_2, PA_3, 115200);
 RFM69 radio(PB_15, PB_14, PB_13, PB_12, PA_8); // RFM69::RFM69(PinName  PinName mosi, PinName miso, PinName sclk,slaveSelectPin, PinName int)
 /* I/O pins */
 AnalogIn analog(PA_0);
-InterruptIn freq_sensor(PB_5);
+DigitalIn fuel_sensor(PB_6, PullNone);
+InterruptIn freq_sensor(PB_5, PullNone);
 PwmOut servo(PA_6);
 /* Debug pins */
 PwmOut signal(PA_7);
@@ -26,6 +27,7 @@ void canISR();
 void servoSwitchISR();
 void ticker5HzISR();
 void ticker10HzISR();
+void ticker100HzISR();
 void frequencyCounterISR();
 /* Interrupt handlers */
 void canHandler();
@@ -46,6 +48,8 @@ Thread eventThread;
 EventQueue queue(1024);
 Ticker ticker5Hz;
 Ticker ticker10Hz;
+Ticker ticker100Hz;
+Timeout fuel_timeout;
 CircularBuffer <state_t, 2*BUFFER_SIZE> state_buffer;
 CircularBuffer <imu_t*, 20> imu_buffer;
 CircularBuffer <acq_10hz_t*, 10> d10hz_buffer;
@@ -59,6 +63,8 @@ state_t current_state = IDLE_ST;
 uint8_t pulse_counter = 0;
 uint64_t current_period = 0, last_count = 0;
 float rpm_hz, V_termistor = 0;
+uint8_t fuel_timer = 0;
+uint8_t fuel_counter = 0;
 packet_t data;                                // Create package for radio comunication
 packet_t radio_packet;
 
@@ -94,7 +100,7 @@ int main()
             case IDLE_ST:
 //              Thread::wait(1);
                 break;
-            case SLOWACQ_ST:
+            case TEMP_ST:
                 dbg1 = !dbg1;
                 V_termistor = VCC*analog.read();
                 data.temp.motor = ((float) (1.0/0.032)*log((1842.8*(VCC - V_termistor)/(V_termistor*R_TERM))));
@@ -104,6 +110,21 @@ int main()
                 can.write(txMsg);
                 temp_buffer.push(data.temp);
                 state_buffer.push(RADIO_ST);
+                break;
+            case FUEL_ST:
+                data.data_10hz[0].flags &= ~(0x08);
+                data.data_10hz[1].flags &= ~(0x08);
+
+                data.data_10hz[0].flags |= (fuel_counter > NORMAL_THRESHOLD) ? (0x01 << 3) : 0;
+                data.data_10hz[1].flags |= (fuel_counter > NORMAL_THRESHOLD) ? (0x01 << 3) : 0;
+
+                txMsg.clear(FLAGS_ID);
+                txMsg << radio_packet.data_10hz[0].flags;
+                can.write(txMsg);
+
+                fuel_timer = 0;
+                fuel_counter = 0;
+                ticker100Hz.attach(&ticker100HzISR, 0.01);
                 break;
             case RPM_ST:
                 dbg2 = !dbg2;
@@ -125,7 +146,8 @@ int main()
 //                serial.printf("rpm = %d\r\n",data.data_10hz[packet_counter[N_RPM]].rpm);
                 /* Send rpm data */
                 txMsg.clear(RPM_ID);
-                txMsg << rpm_hz;
+                uint16_t rpm_temp = rpm_hz;
+                txMsg << rpm_temp;
                 can.write(txMsg);
                 /* prepare to re-init rpm counter */
                 pulse_counter = 0;                          
@@ -149,15 +171,7 @@ int main()
                     writeServo(switch_state);
                     switch_clicked = false;
                 }
-                
-                if (packet_counter[N_FLAG] <1)
-                {
-                    packet_counter[N_FLAG]++;
-                }
-                else if (packet_counter[N_FLAG] == 1)
-                {
-                    packet_counter[N_FLAG] = 0;
-                }
+
                 break;
             case RADIO_ST:
                 dbg4 = !dbg4;
@@ -173,7 +187,6 @@ int main()
                     temp_buffer.pop(radio_packet.temp);
                     radio.send((uint8_t)BOXRADIO_ID, &radio_packet, sizeof(packet_t), true);     // request ACK with 1 retry (waitTime = 40ms)
                 }
-            
                 break;
             case DEBUG_ST:
 //                serial.printf("radio state pushed");
@@ -202,12 +215,26 @@ void canISR()
 
 void ticker5HzISR()
 {
-    state_buffer.push(SLOWACQ_ST);
+    state_buffer.push(TEMP_ST);
 }
 
 void ticker10HzISR()
 {
     state_buffer.push(RPM_ST);
+}
+
+void ticker100HzISR()
+{
+    if (fuel_timer < 100)
+    {
+        fuel_timer++;
+        fuel_counter += !fuel_sensor.read();
+    }
+    else
+    {
+        state_buffer.push(FUEL_ST);
+        ticker100Hz.detach();
+    }
 }
 
 void frequencyCounterISR()
@@ -248,6 +275,7 @@ void setupInterrupts()
     can.attach(&canISR, CAN::RxIrq);
     ticker5Hz.attach(&ticker5HzISR, 0.2);
     ticker10Hz.attach(&ticker10HzISR, 0.1);
+    ticker100Hz.attach(&ticker100HzISR, 0.01);
     freq_sensor.fall(&frequencyCounterISR);
 }
 
@@ -311,5 +339,14 @@ void writeServo(uint8_t state)
 //            serial.printf("Choke/run error\r\n");
             data.data_10hz[packet_counter[N_FLAG]].flags |= 0x04;    // set servo error flag
             break;
+    }
+                
+    if (packet_counter[N_FLAG] <1)
+    {
+        packet_counter[N_FLAG]++;
+    }
+    else if (packet_counter[N_FLAG] == 1)
+    {
+        packet_counter[N_FLAG] = 0;
     }
 }
